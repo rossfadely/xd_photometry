@@ -1,7 +1,11 @@
 #
-# Gaussian Mixture Model, swiped from scikit-learn but with 
-# last two functions added to allow fixed means and axis-aligned
-# covariance.  - Ross Fadely
+# Gaussian Mixture Model, swiped from scikit-learn then tweaked -
+# 1) eliminate need do initialization so we can specify a previous set
+#    of parameters.
+# 2) add last two functions to allow fixed means and axis-aligned
+#    covariance.  
+#
+# Tweaks by - Ross Fadely
 #
 import numpy as np
 
