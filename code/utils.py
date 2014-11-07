@@ -124,14 +124,8 @@ def log_multivariate_gaussian(x, mu, V, Vinv=None, method=1):
 
     elif method == 1:
         if Vinv is None:
-            try:
-                Vinv = np.array([np.linalg.inv(V[i])
-                                 for i in range(V.shape[0])]).reshape(Vshape)
-            except:
-                for i in range(V.shape[0]):
-                    print V[i]
-                    print np.linalg.inv(V[i])
-                    assert 0
+            Vinv = np.array([np.linalg.inv(V[i])
+                             for i in range(V.shape[0])]).reshape(Vshape)
         else:
             assert Vinv.shape == Vshape
 
