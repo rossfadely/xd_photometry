@@ -1,0 +1,126 @@
+\documentclass[12pt,preprint]{aastex}
+\usepackage{amssymb,amsmath,mathrsfs,hyperref,datetime}
+
+\newcommand{\datavector}[1]{\boldsymbol{#1}}
+\newcommand{\data}{\datavector{y}}
+\newcommand{\datum}{\data_i}
+\newcommand{\truedatum}{\data_{{\rm true}, i}}
+\newcommand{\noiselessdata}{\tilde{\data}}
+\newcommand{\noiselessdatum}{\tilde{\datum}}
+\newcommand{\xdcov}{\datavector{V}_j}
+\newcommand{\datacov}{\datavector{C}}
+\newcommand{\postcov}{\tilde{\datacov}_{i, j}}
+\newcommand{\vmu}{\datavector{\mu}}
+\newcommand{\postmu}{\tilde{\vmu}_{i, j}}
+\newcommand{\datumcov}{\datacov_i}
+\newcommand{\transpose}{{\rm T}}
+\newcommand\rf[1]{{\bf [RF: #1]}}
+
+\def\urltilda{\kern -.15em\lower .7ex\hbox{\~{}}\kern .04em}
+
+\pdfoutput=1
+
+\begin{document}
+
+\title{Joint photometric modeling for improved measurements in imaging surveys.}
+\author{Ross~Fadely\altaffilmark{1} \&
+        David~W.~Hogg\altaffilmark{1,2}}
+\altaffiltext{1}{Center~for~Cosmology~and~Particle~Physics, Department~of~Physics, New~York~University, 4~Washington~Place, New~York, NY 10003, USA}
+\altaffiltext{2}{Max-Planck-Institut f\"ur Astronomie, K\"onigstuhl 17, 69117 Heidelberg, Germany}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Abstract
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+Large scale astronomical imaging surveys have fundamentally changed our 
+understanding of the cosmos, and promise to continue to do so with forthcoming 
+surveys like the Large Synoptic Survey Telescope which will provide greater 
+volumes of data at increasingly fainter detection limits.  In order to extract
+the most science out of such costly missions, it is important to continually
+explore ways to improve the means by which photometric measurements are made.
+Historically, photometric measurements are made on a per object basis under
+our understanding of the characteristics of the telescope, instruments, and
+astronomical sources.  We argue that it is possible to improve the quality of
+such photometric measurements by building models which incorporate the shared
+similarity of sources.  As a demonstration, we use Extreme Deconvolution (XD)
+to model the joint distribution of photometric quantities measured by SDSS in
+Stripe 82.  Using single epoch data, we show that our joint XD model makes
+predictions that more closely resemble the coadded Stripe 82 data.  Looking
+at the difference between the psf and model magnitudes in the single epoch and 
+coadded data, the average error is XX at $r\sim21$ versus an average of XX
+for our XD posteriors.  In the case of the CMDs of globular clusters, we show
+that the XD posteriors lessen the presence of misclassified galaxies and
+present a narrower stellar locus.  We suggest a number of improvements that
+can be made to provide improved photometric inferences.
+\end{abstract}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Section - Introduction
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+
+Large imaging surveys of parts (or the full) sky are one main modes in which
+modern astronomers study the universe.  Whether conducted on the ground (e.g.,
+SDSS, UKIDSS, NEWFIRM, VLA, etc.) or in space (GALEX, WISE, XMM?, etc.), the
+volume of such surveys provides both strong statistical samples of objects and
+also the potential for new discoveries.  For instance, the Sload Digital Sky
+Survey (optical $ugriz$, $r\lesssim 22$) \citep{york00} was first dataset able
+to describe the quasar luminosity function (CITE?) while also enabling the 
+discovery of new streams and satellites around the Milky Way (CITE).
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Section - Method
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Extreme Deconvolution}
+
+\begin{itemize}
+\item Mixture of Gaussians where each datum's observational uncertainty is accounted for.
+\item cite bovy and applicable works.
+\item regularization to avoid singularities
+\end{itemize}
+
+\subsection{Posterior estimation}
+
+After inference, the XD mixture provides an estimation for the noiseless distribution of 
+the data:
+
+\begin{eqnarray}\displaystyle
+p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \vmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \vmu_j) \right )
+\quad .
+\label{eqn:noiseless}
+\end{eqnarray}
+
+In a hierarchical sense, this learned distribution provides a prior distribution on what the 
+value of a datum should be --- the distribution of the denoised data $\noiselessdata$ is 
+learned for all the observations via XD.  Using Bayes' Rule, we can estimate the posterior 
+value for a given datum
+
+\begin{eqnarray}\displaystyle
+p(\truedatum | \datum) & \propto & p(\datum | \truedatum) p(\truedatum) \\
+                                         & \propto & \frac{1}{\sqrt{2\pi\det{|\datumcov|}}} \exp \left (-\frac{1}{2}(\datum - \truedatum)^\transpose \datumcov^{-1}(\datum - \truedatum) \right ) p(\truedatum)
+\quad ,
+\label{eqn:posterior}
+\end{eqnarray}
+
+\noindent where we assume that the prior for $\truedatum$ is $p(\noiselessdata)$.  Since 
+$p(\noiselessdata)$ is a sum of Gaussian densities, and we multiply this by a Gaussian 
+likelihood, the posterior is also a sum of Gaussians.  That is, the posterior for the true 
+value of the observation is
+
+\begin{eqnarray}\displaystyle
+p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\postcov|}}} \exp \left (-\frac{1}{2}(\truedatum - \postmu)^\transpose \postcov^{-1}(\truedatum - \postmu) \right ) \\
+{\rm where,}\\
+\postcov & = & (\datumcov^{-1} + \xdcov^{-1})^{-1} \quad {\rm and,} \\
+\postmu & = &  \postcov^{-1} (\datumcov^{-1} \datum + \xdcov^{-1} \vmu_j)
+\label{eqn:posterior}
+\end{eqnarray}
+\end{document}
