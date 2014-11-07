@@ -7,8 +7,6 @@
 #
 # Tweaks by - Ross Fadely
 #
-import numpy as np
-
 """
 Gaussian Mixture Models.
 
