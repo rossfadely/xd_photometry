@@ -713,6 +713,14 @@ def constrained_GMM(X, K, iter_total, fixed_means=None, aligned_covs=None,
     """
     Wrap the sklearn mixture of gaussains.  Take one iter at a time,
     apply the constraint after each step.
+    
+    X: data
+    K: n_components
+    iter_total: number of gmm iterations
+    fixed_means: array of length n_dim, (np.inf, np.inf) if no fix 
+                 otherwise tuple with mean for the component
+    aligned_covs: list of tuples. First element is component number
+                  second is list of feature indices to align.
     """
     assert (fixed_means is not None) | (aligned_covs is not None) | \
         (cov_minmax is not None), '\n\nWhy are you using this code??\n'
