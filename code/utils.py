@@ -214,7 +214,7 @@ def fetch_epoch(epoch, kind, verbose=False):
     Return the single epoch and the matched coadded data.
     """
     assert kind in ['stars', 'gals']
-    ddir = os.environ['sgdata']
+    ddir = os.environ['xddata']
 
     # single epoch
     f = pf.open(ddir + 's82single_%s_%d.fits' % (kind, epoch))
@@ -295,7 +295,7 @@ def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     Prepare SDSS DR10 data to run XD.
     """
     np.random.seed(seed)
-    ddir = os.environ['sgdata']
+    ddir = os.environ['xddata']
     f = pf.open(ddir + 'dr10_30k_stars.fits')
     d = f[1].data
     f.close()
@@ -386,6 +386,33 @@ def prep_data(d, features, filters=None, max_err=100.):
     Xcov = np.zeros(Xerr.shape + Xerr.shape[-1:])
     Xcov[:, range(Xerr.shape[1]), range(Xerr.shape[1])] = Xerr ** 2
     Xcov = np.tensordot(np.dot(Xcov, W.T), W, (-2, -1))
+
+    return X, Xcov
+
+def fetch_glob_data(name, features, filters):
+    """
+    Return the data and cov matrix for SDSS DR10 data for the specified
+    globular cluster.
+    """
+    assert name.lower() in ['m3', 'm5', 'm15']
+    from glob import glob
+    files = glob(os.environ['xddata'] + name.lower() + '*fits')
+
+    f = pf.open(files[0])
+    d = f[1].data
+    d = d[(d['clean'] == 1) & (d['type'] == 6)]
+    X, Xcov = prep_data(d, features, filters)
+    f.close()
+
+    if len(files) > 1:
+        for i in range(1, len(files)):
+            f = pf.open(files[i])
+            d =f[1].data
+            d =d[(d['clean'] == 1) & (d['type'] == 6)]
+            tx, txc = prep_data(d, features, filters)
+            f.close()
+            X = np.vstack((X, tx))
+            Xcov = np.vstack((Xcov, txc))
 
     return X, Xcov
 

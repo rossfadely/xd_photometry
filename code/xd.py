@@ -344,8 +344,8 @@ class xd_model(object):
             iV[i] = np.linalg.inv(self.V[i])
 
         for i in range(Xcov.shape[0]):
-            if i % 100 == 0:
-                print i
+            if (model.verbose & i % 1000):
+                print 'Posterior Calculation for datum %d' % i
             Xicov = np.linalg.inv(Xcov[i])
             for j in range(self.n_components):
                 dlt = X[i] - self.mu[j]
