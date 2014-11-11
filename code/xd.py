@@ -30,7 +30,7 @@ from gmm_wrapper import constrained_GMM
 
 def XDGMM(X, Xcov, n_components, n_iter=100, tol=1E-5, Nthreads=1, R=None, 
           init_n_iter=10, w=None, model=None, fixed_means=None,
-          aligned_covs=None, verbose=False):
+          aligned_covs=None, seed=None, verbose=False):
     """
     Extreme Deconvolution
 
@@ -61,6 +61,9 @@ def XDGMM(X, Xcov, n_components, n_iter=100, tol=1E-5, Nthreads=1, R=None,
     -----
     This implementation follows Bovy et al. arXiv 0905.2979
     """
+    if seed is not None:
+        np.random.seed(seed)
+
     if model is None:
         model = xd_model(X.shape, n_components, n_iter, tol, w, Nthreads,
                          fixed_means, aligned_covs, verbose)
@@ -198,9 +201,16 @@ def _Mstep(model, q, b, B):
     M-step: compute alpha, mu, V, update to model
     """
     qj = q.sum(0)
+    alpha = qj / model.n_samples
+
+    # prevent no component from having too low a weight
+    ind = alpha < model.min_alpha
+    alpha[ind] = model.min_alpha
+    alpha /= alpha.sum()
+    qj = alpha * model.n_samples
 
     # update alpha
-    model.alpha = qj / model.n_samples
+    model.alpha = alpha
 
     # update mu
     model.mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis]
@@ -232,7 +242,7 @@ class xd_model(object):
     Class to store all things pertinent to the XD model. 
     """
     def __init__(self, xshape, n_components, n_iter, tol, w, Nthreads,
-                 fixed_means, aligned_covs, verbose):
+                 fixed_means, aligned_covs, verbose, min_alpha=1.e-100):
         self.n_samples = xshape[0]
         self.n_features = xshape[1]
         self.n_components = n_components
@@ -242,6 +252,7 @@ class xd_model(object):
         self.fixed_means = fixed_means
         self.aligned_covs = aligned_covs
         self.verbose = verbose
+        self.min_alpha = min_alpha
 
         self.V = None
         self.mu = None

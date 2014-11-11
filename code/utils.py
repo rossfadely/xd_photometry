@@ -305,8 +305,10 @@ def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     f.close()
     Xgal, Xgalcov = prep_data(d, features, filters)
 
-    Nmax = np.minimum(Xstar.shape[0], Xgal.shape[0])
-    assert N <= Nmax, 'Not enough data for request'
+    Nmax = N * fgal
+    assert Xgal.shape[0] <= Nmax, 'Not enough galaxy data for request'
+    Nmax = N - Nmax
+    assert Xstar.shape[0] <= Nmax, 'Not enough star data for request'
 
     Ngal = np.round(N * fgal).astype(np.int)
     Nstar = N - Ngal
@@ -337,10 +339,12 @@ def make_W_matrix(features, filters, odim):
         # begin spaghetti code
         if 'psf' in feature:
             ind = 0
-        else:
+        elif 'model' in feature:
             ind = 5
+        else:
+            ind = 10
 
-        if 'mag' in feature:
+        if ('mag' in feature) or ('petro' in feature):
             for f in filters[i]:
                 W = np.vstack((W, np.zeros((1, odim))))
                 W[idx, ind + ref[f]] = 1.
@@ -363,7 +367,7 @@ def make_W_matrix(features, filters, odim):
             
     return W[:-1]
 
-def prep_data(d, features, filters=None, max_err=100.):
+def prep_data(d, features, filters=None, max_err=1000., s=0.396):
     """
     Return the prepared data.
     """
@@ -377,9 +381,25 @@ def prep_data(d, features, filters=None, max_err=100.):
                            d['extinction_' + f]for f in 'ugriz']).T
     modelmagerrs = np.vstack([d['modelmagerr_' + f] for f in 'ugriz']).T
 
-    X = np.hstack((psfmags, modelmags))
-    Xerr = np.hstack((psfmagerrs, modelmagerrs))
-    
+    try:
+        seeing = np.vstack([d['mrrcc_' + f] for f in 'ugriz']).T
+        ind = seeing < 0.0
+        seeing = 2. * s * np.sqrt(np.log(2.) * np.abs(seeing))
+        petror50s = np.vstack([d['petror50_' + f] for f in 'ugriz']).T
+        petror50errs = np.vstack([d['petror50err_' + f] for f in 'ugriz']).T
+        ind = ind | (petror50s < 0.) | (np.abs(petror50errs) > max_err)
+        seeing[ind] = np.median(seeing[ind != True])
+        petror50s[ind] = np.median(petror50s[ind != True])
+        petror50errs[ind] = max_err
+        petror50s /= seeing
+        petror50errs /= seeing
+    except:
+        petror50s = 0.5 * np.ones_like(psfmags)
+        petror50errs = max_err * np.ones_like(psfmags)
+
+    X = np.hstack((psfmags, modelmags, petror50s))
+    Xerr = np.hstack((psfmagerrs, modelmagerrs, petror50errs))
+
     W = make_W_matrix(features, filters, X.shape[1])
 
     X = np.dot(X, W.T)
