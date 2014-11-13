@@ -14,6 +14,7 @@
 \newcommand{\postmu}{\tilde{\vmu}_{i, j}}
 \newcommand{\datumcov}{\datacov_i}
 \newcommand{\transpose}{{\rm T}}
+\newcommand\ttt[1]{{\texttt{#1}}}
 \newcommand\rf[1]{{\bf [RF: #1]}}
 
 \def\urltilda{\kern -.15em\lower .7ex\hbox{\~{}}\kern .04em}
@@ -113,10 +114,15 @@ distributions involved -- how distributions are parameterized, what is held
 fixed or considered know, and what the relationships are between the various
 distributions.  We believe the distribution of $p(\truedatum)$ can be quite 
 complex, and it is not obvious what the right description of the distribution
-might be.  For these reasons, we choose to use Extreme Deconvolution 
+might be.  For these reasons, we choose to use Extreme Deconvolution (XD)
+\citep{bovy09}.  XD is a simple but powerful and flexible model which models
+the density of the data as a Mixture of Gaussians, accounting for the 
+measurement errors of the observations.  In short, XD learns a model for which 
+each datum is drawn from an underlying distribution which is convolved by the 
+specified noise estimates.
 
-After inference, the XD mixture provides an estimation for the noiseless
-distribution of the data:
+After inference, the XD mixture provides an estimation for the `noiseless' (or
+less noisy) distribution of the data:
 
 \begin{eqnarray}\displaystyle
 p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \vmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \vmu_j) \right )
@@ -124,17 +130,15 @@ p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \le
 \label{eqn:noiseless}
 \end{eqnarray}
 
-In a hierarchical sense, this learned distribution provides a prior
-distribution on what the value of a datum should be --- the distribution of
-the denoised data $\noiselessdata$ is learned for all the observations via XD.
-Using Bayes' Rule, we can estimate the posterior value for a given datum
+\noindent From here, we assume that the prior for $\truedatum$ is
+$p(\noiselessdata)$.  Doing so, we consider the analysis here akin to an 
+`empirical' heirarchical model -- the prior is not learned simultaneously with
+the posterior but rather is learned separately from the collection of
+observations.
 
-
-\noindent where we assume that the prior for $\truedatum$ is
-$p(\noiselessdata)$.  Since $p(\noiselessdata)$ is a sum of Gaussian
-densities, and we multiply this by a Gaussian likelihood, the posterior is
-also a sum of Gaussians.  That is, the posterior for the true value of the
-observation is
+Since $p(\noiselessdata)$ is a sum of Gaussian densities, and we multiply this
+by a Gaussian likelihood, the posterior is also a sum of Gaussians.  That is,
+the posterior for the true value of the observation is
 
 \begin{eqnarray}\displaystyle
 p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\postcov|}}} \exp \left (-\frac{1}{2}(\truedatum - \postmu)^\transpose \postcov^{-1}(\truedatum - \postmu) \right ) \\
@@ -143,4 +147,98 @@ p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\pos
 \postmu & = &  \postcov^{-1} (\datumcov^{-1} \datum + \xdcov^{-1} \vmu_j)
 \label{eqn:posterior}
 \end{eqnarray}
+
+\section{Data and Model Considerations}
+
+To demonstrate the utility of our approach, we focus on the $ugriz$
+photometric data provided by SDSS' Data Release 10 \citep[DR10,][]{?} and
+Stripe 82 \citep[S82,][]{annis14, others?}.  Here, our primary goal is to
+provide better estimate of the dereddened PSF and model magnitudes observed by
+SDSS.  More specifically, we aim to model the distribution of the $r$ band PSF
+magnitudes, the $u-g$, $g-r$, $r-i$, and $i-z$ model colors, and the different
+between PSF and model magnitudes in the $ugriz$ bands.  Thus, are fiducial 
+models aim to understand the distribution of 10 measurements or `features' per 
+observed source.
+
+In DR10, we randomly select 30k `stars' and `galaxies' (\ttt{type} $= 6, 3$)
+which PSF $r$ magnitudes between 18 and 22, which are \ttt{Primary}
+photometric observations, and which have clean
+photometry\footnote{Observations which are not true in \ttt{EDGE},
+\ttt{NOPROFILE}, \ttt{PEAKCENTER}, \ttt{NOTCHECKED}, \ttt{PSF\_FLUX\_INTERP},
+\ttt{SATURATED}, \ttt{BAD\_COUNTS\_ERROR}, \ttt{DEBLEND\_NOPEAK},
+\ttt{INTERP\_CENTER}, or \ttt{COSMIC\_RAY}, and is detected in
+\ttt{BINNNED1}.}.  The even number of stars and galaxies selected for our
+sample is to mitigate any biases we might induce by favoring one population
+over the other.  For purpose of comparing lower signal-to-noise obversations
+to ones of higher quality, we also select a similar set of observations from
+the S82 coadd \citep{annis14}.  S82 is unique in the SDSS dataset as it is one
+of the few region of the sky for which on average $\sim 20$ epochs of imaging
+have been taken.  As a result, the median $r$ PSF magnitude uncertainty in a
+single epoch is BLAH compared to a median of BLAH for the coadded data (c.f, 
+\ref{fig:error_rates}).  For the results presented below, we have trained our
+XD model on the DR10 data described above and use this model to calculate
+posteriors for both DR10 and S82 single epoch data.
+
+For our XD model, we must specify the number of components in the XD mixture.
+Since our goal is simply to demonstrate the utility of our method, we set the 
+number somewhat arbitrarily to 32.  We also tweak the XD algorithm presented in
+\citet{bovy09} by allowing the user to specify the mean value of a feature,
+as well as inforce that the covariance for a feature to be axis aligned
+(diagonal elements only).  For PSF minus model magnitude features, we force
+the mean to be zero and for the covariance to be axis aligned since this is
+expected for unresolved sources. Since there are also extended sources in the
+data, we only do so for $N_{\rm point}$ components of the mixture.  Again,
+somewhat arbitrarily we set this number to 16.  We have set the number of
+components in the mixture (both in total and for unresolved sources) to
+sensible numbers given the amount of data used, and seem to have adequate
+performance for our purposes.  If this was done in a science quality or
+survey data product setting, we recommend setting these parameters via cross
+validation with data at higher signal to noise.  Finally we note that we 
+apply a small amount of regularization to the covariance of the mixture
+components, exactly the same in nature to that of \citet{bovy10}.  In short, 
+a small value $w$ is added to the diagonal of the covariances to prevent
+singular matrices during the learning process.  We set $w$ to be 1\% of the 
+smallest uncertainty measured in each feature, and find that this does not
+significantly affect our final results.
+
+\section{Results and Discussion}
+
+We find the XD model provides a good understanding of the distribution of the 
+data, and that the posteriors we compute are sensible, less noisy estimates of 
+the observations.  To start, we examine the distribution of the XD mixture 
+relative to the DR10 data.  In figure \ref{fig:contours} we show the contours 
+of the $N_{\rm point}$ components along with data labeled as `star' in DR10,
+and likewise for extended sources.  While its difficult to assess the quality
+of the XD model from the plots, there are a few supporting points.  For the 
+unresolved sources, the mixture prefers low variance in the value of $r$ PSF
+minus model magnitudes which is in agreement we our intuition that stars
+ought to be clustered around values of zero.  Second, the stellar locus in
+color is clear and well tracked by the XD $N_{\rm point}$ components.  Though 
+galaxies have less defining characteristics, it is clear that the XD mixture 
+also tracks their distribution well.
+
+In figure \ref{fig:posteriors}, we show the posterior distributions for 3
+stars and 3 galaxies at different magnitudes.
+
+So far we have shown operationally that the XD model does sensible modeling of
+the photometry and is more \emph{precise}, but it is important to ask whether
+the posteriors are at all \emph{accurate}.  To do so, we rely on comparsions of
+the posteriors we get for S82 single epoch data versus the data from the
+coadd.  In figure \ref{fig:xx_plots}, we plot the different between the single
+epoch and coadd data, as well as our XD posteriors versus the coadd.  We find
+that the median of the residuals for our XD posteriors is consistent with
+zero, indicating the model is not only precise but also accurate.  We note
+this is true for all of the features we model.  Also obvious is the clear
+improvement in the photometry over the single epoch data.
+
+In SDSS, star-galaxy classification is accomplished by selecting objects a
+small range of PSF minus model magnitudes and calling them stars.  In DR10,
+the range is approximately\footnote{The actual algorith involves a combination
+of this criterion for $gri$ bands.} $|r_{PSF} - r_{model}| < 0.145$ while the
+S82 coadd criterion is $|r_{PSF} - r_{model}| < 0.03$.  In figure \ref{fig:pmm}
+we show a normalized histogram of $r$ PSF minus model magnitudes around
+$r=21$, for objects that are called stars in the coadd.  Note that our XD
+posteriors dramatically tighten the distribution of objects around near zero,
+and also indicate the present of interloping galaxies.
+
 \end{document}
