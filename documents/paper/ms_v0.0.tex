@@ -234,28 +234,124 @@ small variance, and generally the model follows the data well.
 \label{fig:contours}
 \end{figure}
 
-In figure \ref{fig:posteriors}, we show the posterior distributions for 3
-stars and 3 galaxies at different magnitudes.
+\begin{figure}
+\centering
+\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
+  width=16cm]{fig2.png}
+\caption{Error ellipses for single epoch S82 photometry (dashed) and XD
+posterior distributions for a star (top row) and galaxy (bottom row).  The 
+projections are the same as in Figure \ref{fig:contours}.  Ellipses for the XD
+posteriors are generally smaller, yet are still consistent with the original 
+measurements.
+}
+\label{fig:posteriors}
+\end{figure}
+
+In figure \ref{fig:posteriors}, we show the posterior distributions for a
+random star and galaxy in our sample.  We find generally that projections of 
+the posterior are consistent with the original measurements, but are of higher 
+precision.  Figure \ref{fig:error_rates} quantifies this, showing the median 
+uncertainty as a function of $r$ magnitude.  We find that the median
+uncertainties of our XD posteriors are a significant improvement to the
+catalog data.  For instance, at $r\sim20$, the uncertainty in the DR10 $r$ PSF 
+magnitude is reduced from 0.28 to 0.2 \rf{DOUBLE CHECK} and more dramatically
+the error in the $u-g$ model color is reduced from 0.5 to 0.3.  It is not
+surprising that the improvements are most significant where the data is more 
+noisy since this is where an informative prior can make the most difference.
+
+\begin{figure}
+\centering
+\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
+  width=16cm]{fig3.png}
+\caption{Plotted are median values for the 1 sigma uncertainty in $r$ PSF
+magnitude, $r$
+psf minus model magnitude, and the four model colors used.  The solid black 
+curve is for the Stripe 82 coadd, while the dotted black and red curves are for
+single epoch Stripe 82 and DR10 data, respectively.  The dashed curves show the
+median uncertainty for the XD posteriors.  While not quite as precise as the 
+coadd data, the XD posteriors are a significant improvement over the catalog
+data.
+}
+\label{fig:error_rates}
+\end{figure}
 
 So far we have shown operationally that the XD model does sensible modeling of
 the photometry and is more \emph{precise}, but it is important to ask whether
 the posteriors are at all \emph{accurate}.  To do so, we rely on comparsions of
 the posteriors we get for S82 single epoch data versus the data from the
-coadd.  In figure \ref{fig:xx_plots}, we plot the different between the single
-epoch and coadd data, as well as our XD posteriors versus the coadd.  We find
-that the median of the residuals for our XD posteriors is consistent with
-zero, indicating the model is not only precise but also accurate.  We note
-this is true for all of the features we model.  Also obvious is the clear
-improvement in the photometry over the single epoch data.
+coadd.  In figure \ref{fig:xx_plots}, we plot the single
+epoch data against coadd measurements, as well as our XD posteriors versus the
+coadd.  We find that the XD posteriors are in good agreement with the coadd
+data -- there is no obvious biases or deviations appart from scatter due to
+noise.  We note that there is a slight offset to lower values of $r$ PSF
+magnitudes at the faintest end ($r \gtrsim 21.5$).  This is an artifact due to
+the fact that none of the components we used were constrained to have mean
+around or greater than $r \sim 21.5$.  As a result, the posteriors will
+naturally pull the magnitude values down.  A simple fix is to force a few
+components of the XD mixture to have means at faint magnitude values, but given
+the size of this effect we have not done so for the purposes here.  Note a
+similar effect will also occur at the bright end of our sample, but is less 
+significant since the measurement uncertainties are lower.  As a additional 
+demonstration of the reasonability of our method, we show the color-magnitude
+diagram for DR10 data of the globular cluster Messier 3 in Figure
+\ref{fig:m3}.  Compared to the DR10 data the XD posterior is clearly much
+cleaner at faint $r$ magnitudes, and is more concentrated across much of the
+main sequence.  Note that the width of the main sequence around $r \sim 19$ is
+not dramatically changed from DR10.  This is because the measurement
+uncertainties are fairly small so the DR10 value is the dominant contributor
+to the posterior.  In other words, the XD values seem to be respectful of the 
+data and do not seem to overly `denoise'.
+
+\begin{figure}
+\centering
+\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
+  width=16cm]{fig4.png}
+\caption{In the top row, we plot 2D histograms of $r$ PSF magnitudes, $u-g$
+model color, and $i-z$ model color for single epoch Stripe 82 data versus the
+corresponding coadd values.  In the bottow row, we plot the same for a single
+sample from the XD posteriors of the data in the top.  Generally speaking the
+XD posteriors are very consistent with the coadd photometry, indicating that 
+the models are indeed acurate.
+}
+\label{fig:xx_plots}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[width=16cm]{fig5.png}
+\caption{The $g-r$ versus $r$ color-magnitude diagram from the outskirts of
+the globular cluster Messier 3.  The left panel shows the original DR10
+measurements and the right shows the median value from the XD posteriors.  Note
+the main sequence is generally more concentrated, especially at faint
+magnitudes.
+}
+\label{fig:m3}
+\end{figure}
 
 In SDSS, star-galaxy classification is accomplished by selecting objects a
 small range of PSF minus model magnitudes and calling them stars.  In DR10,
-the range is approximately\footnote{The actual algorith involves a combination
+the range is approximately\footnote{The actual algorithm involves a combination
 of this criterion for $gri$ bands.} $|r_{PSF} - r_{model}| < 0.145$ while the
 S82 coadd criterion is $|r_{PSF} - r_{model}| < 0.03$.  In figure \ref{fig:pmm}
-we show a normalized histogram of $r$ PSF minus model magnitudes around
-$r=21$, for objects that are called stars in the coadd.  Note that our XD
-posteriors dramatically tighten the distribution of objects around near zero,
-and also indicate the present of interloping galaxies.
+we show a histogram of $r$ PSF minus model magnitudes around $r=19.5$
+20.5, and 21.5 for objects that are called `stars' in the coadd.  Note that
+our XD posteriors dramatically tighten the distribution of objects to values
+very close to zero.  This implies that the quality of the star-galaxy
+classification could be substantially improved by selecting on values produced
+by the XD posteriors.
+
+\begin{figure}
+\centering
+\includegraphics[width=16cm]{fig6.png}
+\caption{Histograms of the values of the $r$ PSF minus model magnitudes for 
+objects within 0.15 mag of $r = 19.5$, 20.5, and 21.5 that were labeled as 
+`stars' in the Stripe 82 coadd.  The dotted histograms shows the distribution
+for single epoch Stripe 82 data, while the solid histograms show those for the
+XD posteriors.  The XD values are strongly peaked near zero, while the single
+epoch values are more distributed, suggesting star-galaxy classification
+could be improved by relying on the XD values.  
+}
+\label{fig:pmm}
+\end{figure}
 
 \end{document}
