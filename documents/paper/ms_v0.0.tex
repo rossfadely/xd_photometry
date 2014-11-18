@@ -354,4 +354,33 @@ could be improved by relying on the XD values.
 \label{fig:pmm}
 \end{figure}
 
+We emphasize that the method we present here is just a toy example of how one 
+might improve photometric measurements in astronomical surveys.  By no means do
+we believe that this is the best or only way to build a hierarchical model for 
+the photometry, however, it does have the property of being simple,
+interpretable, and yet quite flexible.  For a ``production'' level set of
+posteriors there would still be much to sort out, including ---
+
+\begin{itemize}
+\item What data should be used for training the XD model?
+\item What are the optimal number of XD components?
+\item Which mean values of the mixture should be fixed
+\item Which covariances should be diagonal?
+\item What are the best features to include model?
+\item What, if any, features should be included that are outside the survey
+data?
+\end{itemize}
+
+All such questions would be straightforward to answer using cross validation,
+either on left out ``test'' data or higher signal-to-noise data.  One of the
+main reasons that we have not done so here is that the correct metric for any
+cross validation approach depends on the scientific goals of the experiment.  
+Large surveys can likely define a set of such metrics that meet much of their 
+users goals, but there may still be cases where individuals may want to define
+their own models.  Finally, we do not argue that posterior values should 
+replace photometric measurements in all cases.  Indeed, in the case transient
+or varying objects this would likely be a bad idea.  Additionally, it may
+hinder the discovery of rare types of objects since the prior would drive the
+measurments to values like more common sources.
+
 \end{document}
