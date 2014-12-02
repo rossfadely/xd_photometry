@@ -1,5 +1,13 @@
+\newcommand{\xdmean}{\datavector{\mu}}
 \documentclass[12pt,preprint]{aastex}
 \usepackage{amssymb,amsmath,mathrsfs,hyperref,datetime}
+
+\usepackage{algorithmic,algorithm}
+\usepackage{eqparbox}
+\renewcommand{\algorithmiccomment}[1]{\hfill\eqparbox{COMMENT}
+                                      {\it~#1}}
+\newcommand{\blankcomment}{\protect\phantom{$1$}\hspace{10cm}
+                           \protect\phantom{$1$}}
 
 \newcommand{\datavector}[1]{\boldsymbol{#1}}
 \newcommand{\data}{\datavector{y}}
@@ -7,13 +15,20 @@
 \newcommand{\truedatum}{\data_{{\rm true}, i}}
 \newcommand{\noiselessdata}{\tilde{\data}}
 \newcommand{\noiselessdatum}{\tilde{\datum}}
+\newcommand{\xij}{\datavector{x}_{ij}}
+\newcommand{\Lij}{\datavector{\lambda}_{ij}}
+\newcommand{\Tij}{\datavector{T}_{ij}}
+\newcommand{\qij}{\datavector{q}_{ij}}
+\newcommand{\qj}{\datavector{q}_{j}}
+\newcommand{\dlt}{(\xdmu_j - \xij)}
 \newcommand{\xdcov}{\datavector{V}_j}
 \newcommand{\datacov}{\datavector{C}}
 \newcommand{\postcov}{\tilde{\datacov}_{i, j}}
-\newcommand{\vmu}{\datavector{\mu}}
-\newcommand{\postmu}{\tilde{\vmu}_{i, j}}
+\newcommand{\xdmu}{\datavector{\mu}}
+\newcommand{\fixedmu}{\bar{\mu}}
+\newcommand{\postmu}{\tilde{\xdmu}_{i, j}}
 \newcommand{\datumcov}{\datacov_i}
-\newcommand{\transpose}{{\rm T}}
+\newcommand{\transpose}{\mathsf{T}}
 \newcommand\ttt[1]{{\texttt{#1}}}
 \newcommand\rf[1]{{\bf [RF: #1]}}
 
@@ -78,13 +93,42 @@ Survey (optical $ugriz$, $r\lesssim 22$) \citep{york00} was first dataset able
 to describe the quasar luminosity function (CITE?) while also enabling the 
 discovery of new streams and satellites around the Milky Way (CITE).
 
+For a large catagory of survey missions, the main scientific deliverable is a
+catalog of photometric measurements such as astrometry, magnitudes, and
+morphological information.  These catalogs are almost always constructed on a 
+per-object basis -- each source in an image is measured 
+independently\footnote{Apart from issues associated with blending, detection,
+psf modeling, etc.}.
+For most types of sources (stars, galaxys and quasars), we have thousands to
+millions of measurements albeit with varying properties and signal-to-noise.
+This begs the question as to whether we can make a better estimate of a given
+photometric measurement based on the fact that we have many similar
+measurements.  Indeed, if we have thousands of measurements of (for example)
+main sequence F4 stars, we ought to be able to get a better estimate of a new 
+ones photometric properties by incorperating what is learned from the
+population. 
+
+Since telescope time is expensive both in terms of cost and person-hours, it
+behoves us to consider whether we can make better estimates of photometric 
+measurements at (essentially) fixed expense.  We argue that it is indeed
+possible to improve the measurements, by exploiting the similarity across
+observations.  As a demonstration, we use Extreme Deconvolution
+\citep[XD, ][]{bovy09} to model the photometry in the SDSS DR10 \citep{} and
+Stripe 82 \citep{} data releases.  XD has been shown to be a powerful yet
+simple way to model the properties of heteroskedastic data \citep{bovy10}.
+Here, we apply it to SDSS photometry and produce posterior estimates of the 
+measurements.  In Section \ref{sec:method} we discuss the ideas and methods 
+behind our modeling, Section \ref{sec:data} describes the data we use for 
+our demostration, and \ref{sec:results} presents and discusses the application
+of our XD model.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 % Section - Method
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Extreme Deconvolution}
+\section{Posterior Estimates with Extreme Deconvolution}
+\label{sec:method}
 
 Our goal is to construct a model of the joint distribution of the space of
 possible photometric measurements.  The key idea is that once we have learned
@@ -121,11 +165,44 @@ measurement errors of the observations.  In short, XD learns a model for which
 each datum is drawn from an underlying distribution which is convolved by the 
 specified noise estimates.
 
+\begin{algorithm}
+\caption{Expectation-Maximization for XD}
+\textbf{Expectation Step:}
+\begin{algorithmic}[1]
+\STATE $\Tij \gets \xdcov + \datumcov$
+\STATE $\qij \gets \frac{\alpha_j \mathcal{N}(\datum | \xdmu_j, \Tij)}
+       {\sum_j \alpha_j \mathcal{N}(\datum | \xdmu_j, \Tij)}$
+\STATE $\xij \gets \xdmu_j + \xdcov\Tij^{-1}(\datum - \xdmu_j)$
+\STATE $\Lij \gets \xdcov - \xdcov\Tij^{-1}\xdcov$
+\end{algorithmic}
+\textbf{Maximization Step:}
+\begin{algorithmic}[1]
+\STATE $\alpha_j \gets \frac{1}{N}\sum_i \qij$
+\STATE $\xdmu_j \gets \frac{1}{\qj}\sum_i \qij\xij$
+\FOR [\blankcomment]{$k = 1, \ldots, N_{\rm dim}$}
+    \IF [// fix mean of feature k to $\fixedmu_{jk}$ if 
+        desired]{$\exists\, \fixedmu_{jk}$}
+        \STATE $(\xdmu_j)_k \gets \fixedmu_{jk}$
+    \ENDIF
+\ENDFOR
+\STATE $\xdcov \gets \frac{1}{\qj}\sum_i \qij [\dlt\dlt^\transpose + \Lij]$
+\FOR {$k = 1, \ldots, N_{\rm dim}$}
+    \IF [// axis align covariance for feature k if desired]
+        {$align_{jk}$}
+        \STATE $var = (\xdcov)_{k,k}$
+        \STATE $(\xdcov)_{k,:} \gets 0$
+        \STATE $(\xdcov)_{:,k} \gets 0$
+        \STATE $(\xdcov)_{k,k} \gets var$
+    \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
 After inference, the XD mixture provides an estimation for the `noiseless' (or
 less noisy) distribution of the data:
 
 \begin{eqnarray}\displaystyle
-p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \vmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \vmu_j) \right )
+p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \xdmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \xdmu_j) \right )
 \quad .
 \label{eqn:noiseless}
 \end{eqnarray}
@@ -144,11 +221,12 @@ the posterior for the true value of the observation is
 p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\postcov|}}} \exp \left (-\frac{1}{2}(\truedatum - \postmu)^\transpose \postcov^{-1}(\truedatum - \postmu) \right ) \\
 {\rm where,}\\
 \postcov & = & (\datumcov^{-1} + \xdcov^{-1})^{-1} \quad {\rm and,} \\
-\postmu & = &  \postcov^{-1} (\datumcov^{-1} \datum + \xdcov^{-1} \vmu_j)
+\postmu & = &  \postcov^{-1} (\datumcov^{-1} \datum + \xdcov^{-1} \xdmu_j)
 \label{eqn:posterior}
 \end{eqnarray}
 
 \section{Data and Model Considerations}
+\label{sec:data}
 
 To demonstrate the utility of our approach, we focus on the $ugriz$
 photometric data provided by SDSS' Data Release 10 \citep[DR10,][]{?} and
@@ -202,6 +280,7 @@ smallest uncertainty measured in each feature, and find that this does not
 significantly affect our final results.
 
 \section{Results and Discussion}
+\label{sec:results}
 
 We find the XD model provides a good understanding of the distribution of the 
 data, and that the posteriors we compute are sensible, less noisy estimates of 
@@ -236,8 +315,7 @@ small variance, and generally the model follows the data well.
 
 \begin{figure}
 \centering
-\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
-  width=16cm]{fig2.png}
+\includegraphics[width=16cm]{fig2.png}
 \caption{Error ellipses for single epoch S82 photometry (dashed) and XD
 posterior distributions for a star (top row) and galaxy (bottom row).  The 
 projections are the same as in Figure \ref{fig:contours}.  Ellipses for the XD
@@ -261,8 +339,7 @@ noisy since this is where an informative prior can make the most difference.
 
 \begin{figure}
 \centering
-\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
-  width=16cm]{fig3.png}
+\includegraphics[width=16cm]{fig3.png}
 \caption{Plotted are median values for the 1 sigma uncertainty in $r$ PSF
 magnitude, $r$
 psf minus model magnitude, and the four model colors used.  The solid black 
@@ -304,8 +381,7 @@ data and do not seem to overly `denoise'.
 
 \begin{figure}
 \centering
-\includegraphics[clip=true, trim=1.5cm 0.5cm 1.5cm 0.5cm,
-  width=16cm]{fig4.png}
+\includegraphics[width=16cm]{fig4.png}
 \caption{In the top row, we plot 2D histograms of $r$ PSF magnitudes, $u-g$
 model color, and $i-z$ model color for single epoch Stripe 82 data versus the
 corresponding coadd values.  In the bottow row, we plot the same for a single
