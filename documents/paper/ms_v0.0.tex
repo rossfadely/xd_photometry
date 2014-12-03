@@ -68,13 +68,13 @@ such photometric measurements by building models which incorporate the shared
 similarity of sources.  As a demonstration, we use Extreme Deconvolution (XD)
 to model the joint distribution of photometric quantities measured by SDSS in
 Stripe 82.  Using single epoch data, we show that our joint XD model makes
-predictions that more closely resemble the coadded Stripe 82 data.  Looking
-at the difference between the psf and model magnitudes in the single epoch and 
-coadded data, the average error is XX at $r\sim21$ versus an average of XX
-for our XD posteriors.  In the case of the CMDs of globular clusters, we show
-that the XD posteriors lessen the presence of misclassified galaxies and
-present a narrower stellar locus.  We suggest a number of improvements that
-can be made to provide improved photometric inferences.
+predictions that more closely resemble the coadded Stripe 82 data.  The
+posterior variance of the photometric quantities are generally improved by
+$\sim 50 - 100\%$, with little to no bias relative to the coadded data.
+Looking at the difference between the psf and model magnitudes in the single
+epoch data, the average error is 0.11 mag at $r=21$ versus an average of 0.055
+for our XD posteriors implying a potential dramatic improvement in traditional
+star-galaxy classification. 
 \end{abstract}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -105,7 +105,7 @@ This begs the question as to whether we can make a better estimate of a given
 photometric measurement based on the fact that we have many similar
 measurements.  Indeed, if we have thousands of measurements of (for example)
 main sequence F4 stars, we ought to be able to get a better estimate of a new 
-ones photometric properties by incorperating what is learned from the
+one's photometric properties by incorperating what is learned from the
 population. 
 
 Since telescope time is expensive both in terms of cost and person-hours, it
@@ -113,8 +113,9 @@ behoves us to consider whether we can make better estimates of photometric
 measurements at (essentially) fixed expense.  We argue that it is indeed
 possible to improve the measurements, by exploiting the similarity across
 observations.  As a demonstration, we use Extreme Deconvolution
-\citep[XD, ][]{bovy09} to model the photometry in the SDSS DR10 \citep{} and
-Stripe 82 \citep{} data releases.  XD has been shown to be a powerful yet
+\citep[XD, ][]{bovy11} to model the photometry in the SDSS DR10 \citep{ahn14}
+and
+Stripe 82 \citep{annis14} data releases.  XD has been shown to be a powerful yet
 simple way to model the properties of heteroskedastic data \citep{bovy10}.
 Here, we apply it to SDSS photometry and produce posterior estimates of the 
 measurements.  In Section \ref{sec:method} we discuss the ideas and methods 
@@ -147,19 +148,19 @@ p(\truedatum | \datum) & \propto & p(\datum | \truedatum) p(\truedatum) \\
 \noindent where $\datum$ is the observed vector of photometric measurements, 
 $\truedatum$ is the set of values we would have observed in the absense of
 noise, and $\datumcov$ is the covariance for the observation which is
-constructed from our (e.g, the survey's) noise estimates.  The distribution 
+constructed from our (the survey's) noise estimates.  The distribution 
 $p(\truedatum)$ is the prior distribution we wish to learn, and the likelihood
 $p(\datum | \truedatum)$ is assumed to be Gaussian.  Since we are learning the
 prior distribution from a set of many observations, this is refered to as a
-multilevel or hierarchical model.
+multilevel or hierarchical model.  
 
 The art in building a hierachical model is deciding the structure of the
 distributions involved -- how distributions are parameterized, what is held
-fixed or considered know, and what the relationships are between the various
+fixed or considered known, and what the relationships are between the various
 distributions.  We believe the distribution of $p(\truedatum)$ can be quite 
 complex, and it is not obvious what the right description of the distribution
 might be.  For these reasons, we choose to use Extreme Deconvolution (XD)
-\citep{bovy09}.  XD is a simple but powerful and flexible model which models
+\citep{bovy11}.  XD is a simple but powerful and flexible model which models
 the density of the data as a Mixture of Gaussians, accounting for the 
 measurement errors of the observations.  In short, XD learns a model for which 
 each datum is drawn from an underlying distribution which is convolved by the 
@@ -167,6 +168,7 @@ specified noise estimates.
 
 \begin{algorithm}
 \caption{Expectation-Maximization for XD}
+\label{alg:em}
 \textbf{Expectation Step:}
 \begin{algorithmic}[1]
 \STATE $\Tij \gets \xdcov + \datumcov$
@@ -196,29 +198,50 @@ specified noise estimates.
     \ENDIF
 \ENDFOR
 \end{algorithmic}
+\textbf{Note - } $(\mathbf{A})_l$ denotes the $l$-th element of vector
+$\mathbf{A}$, and $(\mathbf{B})_{l,m}$ denotes the element of the $l$-th row
+and $m$-th column of matrix $\mathbf{B}$.  The symbol $:$ indicates all of the
+elements within a row/column/entry.
 \end{algorithm}
 
-After inference, the XD mixture provides an estimation for the `noiseless' (or
-less noisy) distribution of the data:
+The XD mixture provides an estimation for the `noiseless' (or less noisy)
+distribution of the data:
 
 \begin{eqnarray}\displaystyle
-p(\noiselessdata) = \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \xdmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \xdmu_j) \right )
+p(\noiselessdata) = \sum_j^J \frac{\alpha_j}{\sqrt{2\pi\det{|\xdcov|}}} \exp \left (-\frac{1}{2}(\noiselessdata - \xdmu_j)^\transpose \xdcov^{-1}(\noiselessdata - \xdmu_j) \right )
 \quad .
 \label{eqn:noiseless}
 \end{eqnarray}
 
-\noindent From here, we assume that the prior for $\truedatum$ is
-$p(\noiselessdata)$.  Doing so, we consider the analysis here akin to an 
+\noindent The probability of the intrinsic data values $p(\noiselessdata)$ is
+a sum over $J$ gaussians each with a given mean $\xdmu_j$ and covariance
+$\xdcov$, with weights $\alpha_j$.  An efficient way
+to optimize this model is to use Expectation Maximization (EM) as presented in
+\citep{bovy11}.  We summarize the steps of the EM procedure in Algorithm
+\ref{alg:em}.  XD models probability of each datum as a
+sum of $J$ normals with $\mathcal{N}(\datum | \xdmu_j, \Tij)$.  In the
+expectation step we build $\Tij$ from the component's variance and the datum's
+noise estimation.  Then the conditional distribution of the true value
+$\noiselessdata_i$ is estimated as having mean $\xij$ and covariance
+$\Lij$, with probability $\qij$ (relative across components).  In the
+maximization step, we update the component weights as a average over all
+the $\qij$'s for the data.  The component mean is set by the weighted sum of 
+the $\xij$ values, and the component variance is the weighted sum of the 
+covariance of the mean relative to the $\xij$ plus $\Lij$.  In addition, we
+show in maximization steps $3-7$ and $9-16$ an effective way to fix the mean
+and axis-align part or all of the component, respectively.  We discuss why we
+wish to do so in Section \ref{sec:data}.
+
+We assume that the prior for $\truedatum$ is $p(\noiselessdata)$
+(Eq. \ref{eqn:noiseless}).  Doing so, we consider the analysis here akin to an 
 `empirical' heirarchical model -- the prior is not learned simultaneously with
 the posterior but rather is learned separately from the collection of
-observations.
-
-Since $p(\noiselessdata)$ is a sum of Gaussian densities, and we multiply this
-by a Gaussian likelihood, the posterior is also a sum of Gaussians.  That is,
-the posterior for the true value of the observation is
+observations. Since $p(\noiselessdata)$ is a sum of Gaussian densities, and
+we multiply this by a Gaussian likelihood, the posterior is also a sum of
+Gaussians.  That is, the posterior for the true value of the observation is
 
 \begin{eqnarray}\displaystyle
-p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\postcov|}}} \exp \left (-\frac{1}{2}(\truedatum - \postmu)^\transpose \postcov^{-1}(\truedatum - \postmu) \right ) \\
+p(\truedatum | \datum) & \propto & \sum_j^J \frac{\alpha_j}{\sqrt{2\pi\det{|\postcov|}}} \exp \left (-\frac{1}{2}(\truedatum - \postmu)^\transpose \postcov^{-1}(\truedatum - \postmu) \right ) \\
 {\rm where,}\\
 \postcov & = & (\datumcov^{-1} + \xdcov^{-1})^{-1} \quad {\rm and,} \\
 \postmu & = &  \postcov^{-1} (\datumcov^{-1} \datum + \xdcov^{-1} \xdmu_j)
@@ -229,8 +252,8 @@ p(\truedatum | \datum) & \propto & \sum_j^K \frac{\alpha_j}{\sqrt{2\pi\det{|\pos
 \label{sec:data}
 
 To demonstrate the utility of our approach, we focus on the $ugriz$
-photometric data provided by SDSS' Data Release 10 \citep[DR10,][]{?} and
-Stripe 82 \citep[S82,][]{annis14, others?}.  Here, our primary goal is to
+photometric data provided by SDSS' Data Release 10 \citep[DR10,][]{ahn14} and
+Stripe 82 \citep[S82,][]{annis14}.  Here, our primary goal is to
 provide better estimate of the dereddened PSF and model magnitudes observed by
 SDSS.  More specifically, we aim to model the distribution of the $r$ band PSF
 magnitudes, the $u-g$, $g-r$, $r-i$, and $i-z$ model colors, and the different
@@ -252,15 +275,18 @@ to ones of higher quality, we also select a similar set of observations from
 the S82 coadd \citep{annis14}.  S82 is unique in the SDSS dataset as it is one
 of the few region of the sky for which on average $\sim 20$ epochs of imaging
 have been taken.  As a result, the median $r$ PSF magnitude uncertainty in a
-single epoch is BLAH compared to a median of BLAH for the coadded data (c.f, 
+single epoch is 0.07 at $r=21$ compared to a median of 0.015 for the coadded
+data (compare to Figure 
 \ref{fig:error_rates}).  For the results presented below, we have trained our
 XD model on the DR10 data described above and use this model to calculate
 posteriors for both DR10 and S82 single epoch data.
 
 For our XD model, we must specify the number of components in the XD mixture.
 Since our goal is simply to demonstrate the utility of our method, we set the 
-number somewhat arbitrarily to 32.  We also tweak the XD algorithm presented in
-\citet{bovy09} by allowing the user to specify the mean value of a feature,
+number somewhat arbitrarily to 32.  
+As stated in Section \ref{sec:method} we also tweak the XD algorithm
+presented in
+\citet{bovy11} by allowing the user to specify the mean value of a feature,
 as well as inforce that the covariance for a feature to be axis aligned
 (diagonal elements only).  For PSF minus model magnitude features, we force
 the mean to be zero and for the covariance to be axis aligned since this is
@@ -273,7 +299,7 @@ performance for our purposes.  If this was done in a science quality or
 survey data product setting, we recommend setting these parameters via cross
 validation with data at higher signal to noise.  Finally we note that we 
 apply a small amount of regularization to the covariance of the mixture
-components, exactly the same in nature to that of \citet{bovy10}.  In short, 
+components, exactly the same in nature to that of \citet{bovy09}.  In short, 
 a small value $w$ is added to the diagonal of the covariances to prevent
 singular matrices during the learning process.  We set $w$ to be 1\% of the 
 smallest uncertainty measured in each feature, and find that this does not
@@ -303,12 +329,16 @@ also tracks their distribution well.
 \caption{Shown are three different projections of one tenth of the DR10
 photometric data used (black points), with the top/bottom row corresponding
 objects classified as stars/galaxies (\ttt{type} $=6, 3$).  Gray contours
-indicate the different XD components.  For the top we only plot the
-$N_{\rm point}$ components while in the bottom we plot the rest.  Note,
-however, when we compute our model we do not use SDSS classifications -- all
-data is modeled with the combination of both top and bottom contours.  Note
+indicate the different XD components.  In the top panel we show the data and 
+our XD mixture.  For the middle we only plot the
+$N_{\rm point}$ components while in the bottom we plot the rest and restrict
+the data to only SDSS point sources.  In the bottom, we plot the remaining
+components and SDSS extended sources.
+Note,
+however, when we compute our model we do not use SDSS classifications -- the 
+top panel is what is modeled.  Interestingly,
 the components modeling psfmag minus modelmag for starlike objects prefer
-small variance, and generally the model follows the data well.
+small variance, in agreement with what is expected.
 }
 \label{fig:contours}
 \end{figure}
@@ -317,7 +347,9 @@ small variance, and generally the model follows the data well.
 \centering
 \includegraphics[width=16cm]{fig2.png}
 \caption{Error ellipses for single epoch S82 photometry (dashed) and XD
-posterior distributions for a star (top row) and galaxy (bottom row).  The 
+posterior distributions for a star (top row) and galaxy (bottom row).  Mean
+values correspond to the cross and square for the S82 and XD photometry, 
+respectively.  The 
 projections are the same as in Figure \ref{fig:contours}.  Ellipses for the XD
 posteriors are generally smaller, yet are still consistent with the original 
 measurements.
@@ -409,7 +441,7 @@ small range of PSF minus model magnitudes and calling them stars.  In DR10,
 the range is approximately\footnote{The actual algorithm involves a combination
 of this criterion for $gri$ bands.} $|r_{PSF} - r_{model}| < 0.145$ while the
 S82 coadd criterion is $|r_{PSF} - r_{model}| < 0.03$.  In figure \ref{fig:pmm}
-we show a histogram of $r$ PSF minus model magnitudes around $r=19.5$
+we show a histogram of $r$ PSF minus model magnitudes around $r=19.5$,
 20.5, and 21.5 for objects that are called `stars' in the coadd.  Note that
 our XD posteriors dramatically tighten the distribution of objects to values
 very close to zero.  This implies that the quality of the star-galaxy
@@ -434,15 +466,15 @@ We emphasize that the method we present here is just a toy example of how one
 might improve photometric measurements in astronomical surveys.  By no means do
 we believe that this is the best or only way to build a hierarchical model for 
 the photometry, however, it does have the property of being simple,
-interpretable, and yet quite flexible.  For a ``production'' level set of
+interpretable, and yet quite flexible.  For a ``production level'' set of
 posteriors there would still be much to sort out, including ---
 
 \begin{itemize}
 \item What data should be used for training the XD model?
 \item What are the optimal number of XD components?
-\item Which mean values of the mixture should be fixed
+\item Which mean values of the mixture should be fixed?
 \item Which covariances should be diagonal?
-\item What are the best features to include model?
+\item What are the best features to include in the model?
 \item What, if any, features should be included that are outside the survey
 data?
 \end{itemize}
@@ -459,4 +491,30 @@ or varying objects this would likely be a bad idea.  Additionally, it may
 hinder the discovery of rare types of objects since the prior would drive the
 measurments to values like more common sources.
 
+\clearpage
+
+\bibliographystyle{apj}
+\begin{thebibliography}{1}
+
+\bibitem[{{Ahn} {et~al.}}(2014)]{ahn14}
+{{Ahn}, C.~P.,  {Alexandroff}, R.,  {Allende Prieto}, C.,  
+  {Anders}, F.,  {Anderson}, S.~F.,  {Anderton}, T.,  {Andrews},
+  B.~H.,  {Aubourg}, {\'E}.,  {Bailey}, S.,  {Bastien}, F.~A. \&  et al.}
+  2014, \apj, 211, 17
+
+\bibitem[{{Annis} {et~al.}}(2014)]{annis14}
+{{Annis}, J.,  {Soares-Santos}, M.,  {Strauss}, M.~A.,  
+  {Becker}, A.~C.,  {Dodelson}, S.,  {Fan}, X.,  {Gunn}, J.~E.,  
+  {Hao}, J.,  {Ivezi{\'c}}, {\v Z}.,  {Jester}, S.,  {Jiang}, L.,  
+  {Johnston}, D.~E.,  {Kubo}, J.~M.,  {Lampeitl}, H.,  {Lin}, H.,  
+  {Lupton}, R.~H.,  {Miknaitis}, G.,  {Seo}, H.-J.,  {Simet}, M., \& 
+  {Yanny}, B.} 2014, \apj, 794, 120
+
+\bibitem[{{Bovy}, {Hogg} \& {Roweis}}(2009)]{bovy09}
+{Bovy}, J., {Hogg}, D.~W., \& {Roweis}, S.~T. 2011, \apj, 700, 1794
+
+\bibitem[{{Bovy}, {Hogg} \& {Roweis}}(2011)]{bovy11}
+{Bovy}, J., {Hogg}, D.~W., \& {Roweis}, S.~T. 2011, Annals of Applied Statistics, 5, 1657
+
+\end{thebibliography}
 \end{document}
