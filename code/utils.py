@@ -4,6 +4,7 @@
 # Author - Ross Fadely (unless otherwise noted).
 #
 import os
+import h5py
 import multiprocessing
 import numpy as np
 import pyfits as pf
@@ -273,7 +274,8 @@ def fetch_epoch(epoch, kind, verbose=False):
     
     return s, c
 
-def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag', 'model_colors',
+def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag',
+                                                     'model_colors',
                                                      'psf_minus_model'],
                           filters=['r', 'ur gr ri rz', 'r'], use_single=True):
     """
@@ -290,17 +292,20 @@ def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag', 'model_colors',
 def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
                                                   'psf_minus_model'],
                            filters=['r', 'ur gr ri rz', 'r'],
-                           seed=1234):
+                           seed=1234, gname=None, sname=None):
     """
     Prepare SDSS DR10 data to run XD.
     """
+    if gname is None:
+        gname = 'dr10_30k_gals.fits'
+        sname = 'dr10_30k_stars.fits'
     np.random.seed(seed)
     ddir = os.environ['xddata']
-    f = pf.open(ddir + 'dr10_30k_stars.fits')
+    f = pf.open(ddir + sname)
     d = f[1].data
     f.close()
     Xstar, Xstarcov = prep_data(d, features, filters)
-    f = pf.open(ddir + 'dr10_30k_gals.fits')
+    f = pf.open(ddir + gname)
     d = f[1].data
     f.close()
     Xgal, Xgalcov = prep_data(d, features, filters)
@@ -435,6 +440,31 @@ def fetch_glob_data(name, features, filters):
             Xcov = np.vstack((Xcov, txc))
 
     return X, Xcov
+
+def save_xd_parms(filename, a, m, v, vld_logl):
+    """
+    Save the XDGMM params in a fits table.
+    """
+    if filename is None:
+        return
+    f = h5py.File(filename, 'w')
+    f.create_dataset('alpha', data=a)
+    f.create_dataset('mu', data=m)
+    f.create_dataset('V', data=v)
+    f.create_dataset('valid_logl', data=vld_logl)
+    f.close()
+
+def load_xd_parms(filename):
+    """
+    Return an xd model class instance with the params in the hdf file.
+    """
+    f = h5py.File(filename,'r')
+    alpha = f['alpha']
+    mu = f['mu']
+    V = f['V']
+    valid_logl = f['valid_logl']
+    f.close()
+    return alpha, mu, V, valid_logl
 
 if __name__ == '__main__':
     import time

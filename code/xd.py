@@ -1,14 +1,14 @@
 """
-XD version originally by Jake Vanderplas/astroML:
-https://github.com/astroML/astroML/blob/master/astroML/density_estimation/xdeconv.py
+XD version originally by Jake Vanderplas/astroML: http://bit.ly/1FBM2Lg
 
 Modifications by Ross Fadely:
 - 2014-09-23: port and erase astroML dependencies.
 - 2014-09-25: convert class to functions for easy multiprocessing,
               only Estep seems to be useful across mutliple threads.
-- 2014-09-29: add simple covarince regularization to avoid singular matricies.
+- 2014-09-29: add simple covarince regularization to avoid sing. matricies.
 - 2014-10-??: add functionality to compute posteriors for `true` values.
 - 2014-11-03: add ability to fix means and align covariances.
+- 2015-03-27: allow batches, validation set
 
 Extreme deconvolution solver
 
@@ -25,11 +25,15 @@ import numpy as np
 from time import time
 from sklearn.mixture import GMM
 from utils import logsumexp, log_multivariate_gaussian
+from utils import save_xd_parms, load_xd_parms
 from utils import log_multivariate_gaussian_Nthreads
 from gmm_wrapper import constrained_GMM
+from interruptible_pool import InterruptiblePool
 
-def XDGMM(X, Xcov, n_components, n_iter=100, tol=1E-5, Nthreads=1, R=None, 
-          init_n_iter=10, w=None, model=None, fixed_means=None,
+def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
+          n_iter=100, tol=1E-5, Nthreads=1, R=None, Ncheck=32, valid_break=5, 
+          Xvalid=None, Xvalidcov=None, update_weight=None,
+          init_n_iter=10, w=None, model_parms_file=None, fixed_means=None,
           aligned_covs=None, seed=None, verbose=False):
     """
     Extreme Deconvolution
@@ -64,18 +68,26 @@ def XDGMM(X, Xcov, n_components, n_iter=100, tol=1E-5, Nthreads=1, R=None,
     if seed is not None:
         np.random.seed(seed)
 
-    if model is None:
-        model = xd_model(X.shape, n_components, n_iter, tol, w, Nthreads,
-                         fixed_means, aligned_covs, verbose)
+    model = xd_model(X.shape, n_components, n_iter, tol, w, Nthreads,
+                     fixed_means, aligned_covs, verbose)
+
+    if model_parms_file is not None:
+        model.alpha, model.mu, model.V, _ = load_xd_parms(model_parms_file)
 
     if R is not None:
         raise NotImplementedError("mixing matrix R is not yet implemented")
+
+    N = X.shape[0]
+    m = 'Batch size must be integer multiple of N'
+    floatdiv = np.float(N) / Nbatch
+    assert floatdiv == np.round(floatdiv), m
 
     X = np.asarray(X)
     Xcov = np.asarray(Xcov)
 
     # assume full covariances of data
-    assert Xcov.shape == (model.n_samples, model.n_features, model.n_features)
+    assert Xcov.shape == (model.n_samples, model.n_features,
+                          model.n_features)
 
     # initialize components via a few steps of GMM
     # this doesn't take into account errors, but is a fast first-guess
@@ -87,35 +99,65 @@ def XDGMM(X, Xcov, n_components, n_iter=100, tol=1E-5, Nthreads=1, R=None,
         else:
             gmm = constrained_GMM(X, model.n_components, init_n_iter,
                                   fixed_means, aligned_covs)
+
         model.mu = gmm.means_
         model.alpha = gmm.weights_
         model.V = gmm.covars_
-        model.initial_logL = model.logLikelihood(X, Xcov)
+
+        model.train_logL = np.zeros(n_iter)
+        model.valid_logL = np.zeros(n_iter)
+
+        model.train_logL[0] = model.logLikelihood(X, Xcov)
+        if Xvalid is not None:
+            model.valid_logL[0] = model.logLikelihood(Xvalid, Xvalidcov)
+        
         if model.verbose:
             print 'Initalization done in %.2g sec' % (time() - t0)
-            print 'Initial Log Likelihood: ', model.initial_logL
+            print 'Initial Log Likelihood: ', model.train_logL[0]
+            print 'Initial Valid Log Likelihood: ', model.valid_logL[0]
 
-    logL = -np.inf
+    if update_weight is None:
+        update_weight = np.float(Nbatch) / N
+
+    tt = 0.0
+    Nvalid_bad = 0
     for i in range(model.n_iter):
+        start = (i % (N / Nbatch)) * Nbatch
+        end = start + Nbatch
+
         t0 = time()
-        model = _EMstep(model, X, Xcov)
-        logL_next = model.logLikelihood(X, Xcov)
+        model = _EMstep(model, X[start:end], Xcov[start:end], update_weight)
+        model.train_logL[i + 1] = model.logLikelihood(X[start:end],
+                                                      Xcov[start:end])
         t1 = time()
+        tt += t1 - t0
+        if (i % Ncheck == 0):
 
-        if model.verbose:
-            print "%i: log(L) = %.5g" % (i + 1, logL_next)
-            print "    (%.2g sec)" % (t1 - t0)
+            model.valid_logL[i + 1] = model.logLikelihood(Xvalid, Xvalidcov)
+            if model.verbose:
+                tup = (i + 1, model.train_logL[i + 1], model.valid_logL[i + 1])
+                print "%i: log(L) = %.5g, log(Lvalid) = %.5g" % tup
+                print "iter:%.2g sec, total:%.2g sec" % ((t1 - t0), tt)
 
-        model.prev_logL = logL
-        model.logL = logL_next
+            if (model.valid_logL[i + 1] > model.valid_logL[i]):
+                save_xd_parms(savefile, model.alpha, model.mu, model.V,
+                              model.valid_logL)
+            elif Xvalid is None:
+                save_xd_parms(savefile, model.alpha, model.mu, model.V,
+                              model.train_logL)
 
-        if logL_next < logL + model.tol:
+            # let it go three iters
+            if model.valid_logL[i + 1] < np.max(model.valid_logL[3:]):
+                Nvalid_bad += 1
+                if Nvalid_bad == valid_break:
+                    break
+
+        elif model.train_logL[i + 1] < model.train_logL[i] + model.tol:
             break
-        logL = logL_next
 
     return model
 
-def _EMstep(model, X, Xcov):
+def _EMstep(model, X, Xcov, update_weight):
     """
     Perform the E-step (eq 16 of Bovy et al)
     """
@@ -129,22 +171,23 @@ def _EMstep(model, X, Xcov):
     if model.Nthreads > 1:
         q, b, B = _Estep_multi(model, T, w_m, X)
     elif model.Nthreads == 1:
-        q, b, B = _Estep((T, w_m, X, model, model.n_samples))
+        q, b, B = _Estep((T, w_m, X, model))
     else:
         assert False, 'Number of threads must be greater than 0.'
 
     # M step
-    model = _Mstep(model, q, b, B)
+    model = _Mstep(model, q, b, B, update_weight)
 
     return model
 
-def _Estep((T, w_m, X, model, n_samples)):
+def _Estep((T, w_m, X, model)):
     """
     Compute the Estep for the given data chunk and current model
     """
+
     # compute inverse of each covariance matrix T
     Tshape = T.shape
-    T = T.reshape([n_samples * model.n_components,
+    T = T.reshape([X.shape[0] * model.n_components,
                    model.n_features, model.n_features])
     Tinv = np.array([np.linalg.inv(T[i])
                      for i in range(T.shape[0])]).reshape(Tshape)
@@ -173,18 +216,17 @@ def _Estep_multi(model, T, w_m, X):
     """
     Use multiple processes to compute Estep.
     """
-    pool = multiprocessing.Pool(model.Nthreads)
+    pool = InterruptiblePool(model.Nthreads)
     mapfn = pool.map
-    Nchunk = np.ceil(1. / model.Nthreads * model.n_samples).astype(np.int)
+    Nchunk = np.ceil(1. / model.Nthreads * X.shape[0]).astype(np.int)
 
     arglist = [None] * model.Nthreads
     for i in range(model.Nthreads):
         s = i * Nchunk
         e = s + Nchunk
-        arglist[i] = (T[s:e], w_m[s:e], X[s:e], model, X[s:e].shape[0])
+        arglist[i] = (T[s:e], w_m[s:e], X[s:e], model)
 
     results = list(mapfn(_Estep, [args for args in arglist]))
-
     q, b, B = results[0]
     for i in range(1, model.Nthreads):
         q = np.vstack((q, results[i][0]))
@@ -196,24 +238,27 @@ def _Estep_multi(model, T, w_m, X):
     pool.join()
     return q, b, B
 
-def _Mstep(model, q, b, B):
+def _Mstep(model, q, b, B, update_weight):
     """
     M-step: compute alpha, mu, V, update to model
     """
+    Nbatch = q.shape[0]
     qj = q.sum(0)
-    alpha = qj / model.n_samples
+    alpha = qj / Nbatch
 
     # prevent no component from having too low a weight
     ind = alpha < model.min_alpha
     alpha[ind] = model.min_alpha
     alpha /= alpha.sum()
-    qj = alpha * model.n_samples
+    qj = alpha * Nbatch
 
     # update alpha
-    model.alpha = alpha
+    d_alpha = alpha - model.alpha
+    model.alpha = d_alpha * update_weight + model.alpha
 
     # update mu
-    model.mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis]
+    d_mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis] - model.mu
+    model.mu = d_mu * update_weight + model.mu
     if model.fixed_means is not None:
         ind = model.fixed_means < np.inf
         model.mu[ind] = model.fixed_means[ind]
@@ -223,10 +268,11 @@ def _Mstep(model, q, b, B):
     tmp = m_b[:, :, np.newaxis, :] * m_b[:, :, :, np.newaxis]
     tmp += B
     tmp *= q[:, :, np.newaxis, np.newaxis]
-    model.V = (tmp.sum(0) + model.w[np.newaxis, :, :]) / \
-        (qj[:, np.newaxis, np.newaxis] + 1)
+    d_V = (tmp.sum(0) + model.w[np.newaxis, :, :]) / \
+          (qj[:, np.newaxis, np.newaxis] + 1) - model.V
+    model.V = d_V * update_weight + model.V
 
-    # axis align covs if desired
+   # axis align covs if desired
     if model.aligned_covs is not None:
         for info in model.aligned_covs:
             c, inds = zip(info)
@@ -236,6 +282,7 @@ def _Mstep(model, q, b, B):
             model.V[c, inds, inds] = s
 
     return model
+
 
 class xd_model(object):
     """
@@ -296,7 +343,7 @@ class xd_model(object):
         X = X[:, np.newaxis, :]
         Xcov = Xcov[:, np.newaxis, :, :]
         T = Xcov + self.V
-        
+
         if self.Nthreads == 1:
             return log_multivariate_gaussian(X, self.mu, T)
         else:
@@ -319,7 +366,7 @@ class xd_model(object):
         logL : float
             log-likelihood
         """
-        return np.sum(logsumexp(self.logprob_a(X, Xcov), -1))
+        return np.mean(logsumexp(self.logprob_a(X, Xcov), -1))
 
     def sample(self, alpha, mu, V, size=1):
         shape = tuple(np.atleast_1d(size)) + (mu.shape[1],)
