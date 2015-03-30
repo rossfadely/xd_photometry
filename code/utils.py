@@ -289,16 +289,16 @@ def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag',
         d = coadd
     return prep_data(d, features, filters)
 
-def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
+def fetch_prepped_dr12data(N, fgal=0.5, features=['psf_mag', 'model_colors',
                                                   'psf_minus_model'],
                            filters=['r', 'ur gr ri rz', 'r'],
-                           seed=1234, gname=None, sname=None):
+                           seed=1234, gname=None, sname=None, savefile=None):
     """
-    Prepare SDSS DR10 data to run XD.
+    Prepare SDSS DR12 data to run XD.
     """
     if gname is None:
-        gname = 'dr10_30k_gals.fits'
-        sname = 'dr10_30k_stars.fits'
+        gname = 'dr12_30k_gals_rfadely.fit'
+        sname = 'dr12_30k_stars_rfadely.fit'
     np.random.seed(seed)
     ddir = os.environ['xddata']
     f = pf.open(ddir + sname)
@@ -311,9 +311,9 @@ def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     Xgal, Xgalcov = prep_data(d, features, filters)
 
     Nmax = N * fgal
-    assert Xgal.shape[0] <= Nmax, 'Not enough galaxy data for request'
+    assert Xgal.shape[0] >= Nmax, 'Not enough galaxy data for request'
     Nmax = N - Nmax
-    assert Xstar.shape[0] <= Nmax, 'Not enough star data for request'
+    assert Xstar.shape[0] >= Nmax, 'Not enough star data for request'
 
     Ngal = np.round(N * fgal).astype(np.int)
     Nstar = N - Ngal
@@ -329,6 +329,13 @@ def fetch_prepped_dr10data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     ind = np.random.permutation(X.shape[0])
     X = X[ind]
     Xcov = Xcov[ind]
+
+    if savefile is not None:
+        prihdu = pf.PrimaryHDU(X)
+        sechdu = pf.ImageHDU(Xcov)
+        hdulist = pf.HDUList([prihdu, sechdu])
+        hdulist.writeto(savefile, clobber=True)
+
     return X, Xcov
 
 def make_W_matrix(features, filters, odim):
@@ -466,8 +473,37 @@ def load_xd_parms(filename):
     f.close()
     return alpha, mu, V, valid_logl
 
+class DataIterator(object):
+    """
+    Batch iteration of data, reading batch by batch from disk.
+    """
+    def __init__(self, datafile, batch_size):
+        f = pf.open(datafile, memmap=True)
+        self.Xmmap = f[0].data
+        self.Xcovmmap = f[1].data
+        self.Ndata = len(self.Xmmap)
+        f.close()
+
+        self.batch_size = batch_size
+        self.start = 0
+        self.end = min(self.Ndata, batch_size)
+
+    def get_batch(self):
+        X = self.Xmmap[self.start:self.end]
+        Xcov = self.Xcovmmap[self.start:self.end]
+        self.iterate()
+        return X, Xcov
+
+    def iterate(self):
+        self.start += self.batch_size
+        self.end += self.batch_size
+        if self.start >= self.Ndata:
+            self.start = 0
+            self.end = self.batch_size
+
 if __name__ == '__main__':
     import time
     t=time.time()
-    fetch_epoch(12, 'stars', True)
+    N = 1000
+    X, Xcov = fetch_prepped_dr12data(N, savefile='foo.fits')
     print time.time()-t

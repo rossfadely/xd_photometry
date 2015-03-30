@@ -30,8 +30,9 @@ from utils import log_multivariate_gaussian_Nthreads
 from gmm_wrapper import constrained_GMM
 from interruptible_pool import InterruptiblePool
 
-def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
+def XDGMM(datafile, n_components, batch_size, savefile=None,
           n_iter=100, tol=1E-5, Nthreads=1, R=None, Ncheck=32, valid_break=5, 
+          init_Nbatch=None,
           Xvalid=None, Xvalidcov=None, update_weight=None,
           init_n_iter=10, w=None, model_parms_file=None, fixed_means=None,
           aligned_covs=None, seed=None, verbose=False):
@@ -42,25 +43,8 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
 
     Parameters
     ----------
-    n_components: integer
-        number of gaussian components to fit to the data
-    n_iter: integer (optional)
-        number of EM iterations to perform (default=100)
-    tol: float (optional)
-        stopping criterion for EM iterations (default=1E-5)
-    X:    array_like
-          Input data. shape = (n_samples, n_features)
-    Xcov: array_like
-          Covariance of input data.  shape = (n_samples, n_features,
-          n_features)
-    R:    array_like
-          (TODO: not implemented)
-          Transformation matrix from underlying to observed data.  If
-          unspecified, then it is assumed to be the identity matrix.
-    w:    float or array_like
-          if float - w * np.eye is added to V
-          if vector - np.diag(w) is added to V
-          if array - w is added to V 
+    RF FILL IN!!
+
     Notes
     -----
     This implementation follows Bovy et al. arXiv 0905.2979
@@ -68,30 +52,35 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
     if seed is not None:
         np.random.seed(seed)
 
-    model = xd_model(X.shape, n_components, n_iter, tol, w, Nthreads,
+    # initialize data iterator and model.
+    batch_itr = DataIterator(datafile, batch_size)
+    model = xd_model(batch_itr.Ndata, n_components, n_iter, tol, w, Nthreads,
                      fixed_means, aligned_covs, verbose)
 
+    if update_weight is None:
+        update_weight = np.float(batch_size) / batch_itr.Ndata
+
+    # if there is a given parm file, load them to model.
     if model_parms_file is not None:
         model.alpha, model.mu, model.V, _ = load_xd_parms(model_parms_file)
 
-    if R is not None:
-        raise NotImplementedError("mixing matrix R is not yet implemented")
-
-    N = X.shape[0]
-    m = 'Batch size must be integer multiple of N'
-    floatdiv = np.float(N) / Nbatch
-    assert floatdiv == np.round(floatdiv), m
-
-    X = np.asarray(X)
-    Xcov = np.asarray(Xcov)
-
-    # assume full covariances of data
-    assert Xcov.shape == (model.n_samples, model.n_features,
-                          model.n_features)
-
+    # INITIALIZATION ---
     # initialize components via a few steps of GMM
     # this doesn't take into account errors, but is a fast first-guess
     if model.V is None:
+        # get data to initialize
+        if init_Nbatch is None:
+            init_Nbatch = 1
+        elif (init_Nbatch * batch_size > batch_itr.Ndata):
+            assert False, 'initialization batch size too large'
+        X, Xcov = batch_itr.get_batch()
+        for i in range(init_Nbatch - 1):
+            xt, xtc = batch_itr.get_batch()
+            X = np.vstack((X, xt))
+            Xcov = np.vstack((Xcov, xtc))
+            del xt, xtc
+
+        # launch (modified) scikit GMM
         t0 = time()
         if (fixed_means is None) & (aligned_covs is None):
             gmm = GMM(model.n_components, n_iter=init_n_iter,
@@ -100,13 +89,14 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
             gmm = constrained_GMM(X, model.n_components, init_n_iter,
                                   fixed_means, aligned_covs)
 
+        # assign parms
         model.mu = gmm.means_
         model.alpha = gmm.weights_
         model.V = gmm.covars_
 
+        # initial likelihoods under GMM
         model.train_logL = np.zeros(n_iter)
         model.valid_logL = np.zeros(n_iter)
-
         model.train_logL[0] = model.logLikelihood(X, Xcov)
         if Xvalid is not None:
             model.valid_logL[0] = model.logLikelihood(Xvalid, Xvalidcov)
@@ -116,29 +106,33 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
             print 'Initial Log Likelihood: ', model.train_logL[0]
             print 'Initial Valid Log Likelihood: ', model.valid_logL[0]
 
-    if update_weight is None:
-        update_weight = np.float(Nbatch) / N
-
+    # OPTIMIZATION --
+    # Use EM in batches, stop on criteria based on validation set.
     tt = 0.0
     Nvalid_bad = 0
     for i in range(model.n_iter):
-        start = (i % (N / Nbatch)) * Nbatch
-        end = start + Nbatch
-
         t0 = time()
-        model = _EMstep(model, X[start:end], Xcov[start:end], update_weight)
-        model.train_logL[i + 1] = model.logLikelihood(X[start:end],
-                                                      Xcov[start:end])
-        t1 = time()
-        tt += t1 - t0
+
+        # new batch
+        X, Xcov = batch_itr.get_batch()
+
+        # take a step and eval train likelihood
+        model = _EMstep(model, X, Xcov, update_weight)
+        model.train_logL[i + 1] = model.logLikelihood(X, Xcov)
+
+        # only update validation likelihood every so often, can cost 
+        # as much or more than EM update depending on Nvalid.
         if (i % Ncheck == 0):
             model.valid_logL[i + 1] = model.logLikelihood(Xvalid, Xvalidcov)
 
+        t1 = time()
+        tt += t1 - t0
         if model.verbose:
             tup = (i + 1, model.train_logL[i + 1], model.valid_logL[i + 1])
             print "%i: log(L) = %.5g, log(Lvalid) = %.5g" % tup
             print "iter:%.2g sec, total:%.2g sec" % ((t1 - t0), tt)
 
+        # save parms and stop, if needed.
         if (i % Ncheck == 0):
             if (model.valid_logL[i + 1] > model.valid_logL[i]):
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
@@ -151,7 +145,8 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
             if model.valid_logL[i + 1] < np.max(model.valid_logL[it:]):
                 Nvalid_bad += 1
                 if Nvalid_bad == valid_break:
-                    print 'Bad valid, breaking', i, Nvalid_bad
+                    print 'Bad valid, stopping', i, Nvalid_bad
+                    del X, Xcov, batch_itr # paranoid cleanup.
                     break
 
     return model
