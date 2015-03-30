@@ -25,7 +25,7 @@ import numpy as np
 from time import time
 from sklearn.mixture import GMM
 from utils import logsumexp, log_multivariate_gaussian
-from utils import save_xd_parms, load_xd_parms
+from utils import save_xd_parms, load_xd_parms, DataIterator
 from utils import log_multivariate_gaussian_Nthreads
 from gmm_wrapper import constrained_GMM
 from interruptible_pool import InterruptiblePool
@@ -54,7 +54,7 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
 
     # initialize data iterator and model.
     batch_itr = DataIterator(datafile, batch_size)
-    model = xd_model(batch_itr.Ndata, n_components, n_iter, tol, w, Nthreads,
+    model = xd_model(batch_itr.shape, n_components, n_iter, tol, w, Nthreads,
                      fixed_means, aligned_covs, verbose)
 
     if update_weight is None:
@@ -67,13 +67,16 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
     # INITIALIZATION ---
     # initialize components via a few steps of GMM
     # this doesn't take into account errors, but is a fast first-guess
+    t0 = time()
+    X, Xcov = batch_itr.get_batch()
     if model.V is None:
         # get data to initialize
         if init_Nbatch is None:
             init_Nbatch = 1
         elif (init_Nbatch * batch_size > batch_itr.Ndata):
             assert False, 'initialization batch size too large'
-        X, Xcov = batch_itr.get_batch()
+
+        # add more data if requested for init.
         for i in range(init_Nbatch - 1):
             xt, xtc = batch_itr.get_batch()
             X = np.vstack((X, xt))
@@ -81,7 +84,6 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
             del xt, xtc
 
         # launch (modified) scikit GMM
-        t0 = time()
         if (fixed_means is None) & (aligned_covs is None):
             gmm = GMM(model.n_components, n_iter=init_n_iter,
                       covariance_type='full').fit(X)
@@ -94,17 +96,17 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
         model.alpha = gmm.weights_
         model.V = gmm.covars_
 
-        # initial likelihoods under GMM
-        model.train_logL = np.zeros(n_iter)
-        model.valid_logL = np.zeros(n_iter)
-        model.train_logL[0] = model.logLikelihood(X, Xcov)
-        if Xvalid is not None:
-            model.valid_logL[0] = model.logLikelihood(Xvalid, Xvalidcov)
+    # initial likelihoods under GMM, or prev model
+    model.train_logL = np.zeros(n_iter + 1)
+    model.valid_logL = np.zeros(n_iter + 1)
+    model.train_logL[0] = model.logLikelihood(X, Xcov)
+    if Xvalid is not None:
+        model.valid_logL[0] = model.logLikelihood(Xvalid, Xvalidcov)
         
-        if model.verbose:
-            print 'Initalization done in %.2g sec' % (time() - t0)
-            print 'Initial Log Likelihood: ', model.train_logL[0]
-            print 'Initial Valid Log Likelihood: ', model.valid_logL[0]
+    if model.verbose:
+        print 'Initalization done in %.2g sec' % (time() - t0)
+        print 'Initial Log Likelihood: ', model.train_logL[0]
+        print 'Initial Valid Log Likelihood: ', model.valid_logL[0]
 
     # OPTIMIZATION --
     # Use EM in batches, stop on criteria based on validation set.

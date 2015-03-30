@@ -466,10 +466,10 @@ def load_xd_parms(filename):
     Return an xd model class instance with the params in the hdf file.
     """
     f = h5py.File(filename,'r')
-    alpha = f['alpha']
-    mu = f['mu']
-    V = f['V']
-    valid_logl = f['valid_logl']
+    alpha = f['alpha'][:]
+    mu = f['mu'][:]
+    V = f['V'][:]
+    valid_logl = f['valid_logl'][:]
     f.close()
     return alpha, mu, V, valid_logl
 
@@ -482,6 +482,8 @@ class DataIterator(object):
         self.Xmmap = f[0].data
         self.Xcovmmap = f[1].data
         self.Ndata = len(self.Xmmap)
+        self.Ndim = len(self.Xmmap[0])
+        self.shape = (self.Ndata, self.Ndim)
         f.close()
 
         self.batch_size = batch_size
