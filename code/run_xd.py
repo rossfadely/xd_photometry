@@ -23,10 +23,10 @@ filters = ['r', 'ug gr ri iz', 'ugriz']
 
 # parm file specifications.
 message = 'pm_mc_pmm_r_all_all_v1'
-savefile = ddir + '/xdparms_%s_%d_%d_%d_%d_%s.hd5' % (data, N, K, Nstar,
+savefile = ddir + '/xdparms_%s_%d_%d_%d_%s.hd5' % (data, N, K, Nstar,
                                                       message)
 message = 'pm_mc_pmm_r_all_all_v1'
-model_parms_file = ddir + '/xdparms_%s_%d_%d_%d_%d_%s.hd5' % (data, N, K,
+model_parms_file = ddir + '/xdparms_%s_%d_%d_%d_%s.hd5' % (data, N, K,
                                                               Nstar, message)
 model_parms_file = None
 
