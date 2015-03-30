@@ -132,13 +132,14 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
         t1 = time()
         tt += t1 - t0
         if (i % Ncheck == 0):
-
             model.valid_logL[i + 1] = model.logLikelihood(Xvalid, Xvalidcov)
-            if model.verbose:
-                tup = (i + 1, model.train_logL[i + 1], model.valid_logL[i + 1])
-                print "%i: log(L) = %.5g, log(Lvalid) = %.5g" % tup
-                print "iter:%.2g sec, total:%.2g sec" % ((t1 - t0), tt)
 
+        if model.verbose:
+            tup = (i + 1, model.train_logL[i + 1], model.valid_logL[i + 1])
+            print "%i: log(L) = %.5g, log(Lvalid) = %.5g" % tup
+            print "iter:%.2g sec, total:%.2g sec" % ((t1 - t0), tt)
+
+        if (i % Ncheck == 0):
             if (model.valid_logL[i + 1] > model.valid_logL[i]):
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
                               model.valid_logL)
@@ -146,14 +147,12 @@ def XDGMM(X, Xcov, n_components, Nbatch, savefile=None,
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
                               model.train_logL)
 
-            # let it go three iters
-            if model.valid_logL[i + 1] < np.max(model.valid_logL[3:]):
+            it = np.minimum(n_iter - 1, 3) # run for three iters min.
+            if model.valid_logL[i + 1] < np.max(model.valid_logL[it:]):
                 Nvalid_bad += 1
                 if Nvalid_bad == valid_break:
+                    print 'Bad valid, breaking', i, Nvalid_bad
                     break
-
-        elif model.train_logL[i + 1] < model.train_logL[i] + model.tol:
-            break
 
     return model
 
