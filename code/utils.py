@@ -5,17 +5,17 @@
 #
 import os
 import h5py
-import multiprocessing
 import numpy as np
 import pyfits as pf
+
+from interruptible_pool import InterruptiblePool
 
 def log_multivariate_gaussian_Nthreads(x, mu, V, Nthreads=1):
     """
     Use multiprocessing to calculate log likelihoods.
     """
     n_samples = x.shape[0]
-
-    pool = multiprocessing.Pool(Nthreads)
+    pool = pool = InterruptiblePool(Nthreads)
     mapfn = pool.map
     Nchunk = np.ceil(1. / Nthreads * n_samples).astype(np.int)
 
