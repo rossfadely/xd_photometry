@@ -14,7 +14,7 @@ batch_size = 30000
 K = 32
 uw = 0.5
 Ncheck = 4
-n_iter = 1
+n_iter = 128
 Nstar = 16
 data = 'dr12'
 factor = 100.
@@ -22,14 +22,13 @@ features = ['psf_mag', 'model_colors', 'psf_minus_model']
 filters = ['r', 'ug gr ri iz', 'ugriz']
 
 # parm file specifications.
-total_iter = n_iter
+message = 'pm_mc_pmm_r_all_all_v1'
+savefile = ddir + '/xdparms_%s_%d_%d_%d_%d_%s.hd5' % (data, N, K, Nstar,
+                                                      message)
 message = 'pm_mc_pmm_r_all_all_v1'
 model_parms_file = ddir + '/xdparms_%s_%d_%d_%d_%d_%s.hd5' % (data, N, K,
-                                                              total_iter,
                                                               Nstar, message)
-message = 'pm_mc_pmm_r_all_all_v1'
-savefile = ddir + '/xdparms_%s_%d_%d_%d_%d_%s.hd5' % (data, N, K, total_iter,
-                                                      Nstar, message)
+model_parms_file = None
 
 # training data files
 gdataname = 'dr12_30k_gals_rfadely.fit'
