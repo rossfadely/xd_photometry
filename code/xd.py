@@ -9,6 +9,8 @@ Modifications by Ross Fadely:
 - 2014-10-??: add functionality to compute posteriors for `true` values.
 - 2014-11-03: add ability to fix means and align covariances.
 - 2015-03-27: allow batches, validation set
+- 2015-04-10: switch to cython/gsl likelihood and Estep evaluations
+- 2015-04-10: switch to stepwise batch EM with weight decay.
 
 Extreme deconvolution solver
 
@@ -22,18 +24,20 @@ works with R = I.
 import multiprocessing
 import numpy as np
 
+from xdsave2 import _Estep as npe
+from Estep import _Estep
 from time import time
 from sklearn.mixture import GMM
-from utils import logsumexp, log_multivariate_gaussian
+from utils import logsumexp, log_multivariate_gaussian, mem
 from utils import save_xd_parms, load_xd_parms, DataIterator
 from utils import log_multivariate_gaussian_Nthreads
 from gmm_wrapper import constrained_GMM
 from interruptible_pool import InterruptiblePool
 
 def XDGMM(datafile, n_components, batch_size, savefile=None,
-          n_iter=100, tol=1E-5, Nthreads=1, R=None, Ncheck=32, valid_break=5, 
-          init_Nbatch=None,
-          Xvalid=None, Xvalidcov=None, update_weight=None,
+          n_iter=100, tol=1E-5, Nthreads=1, R=None, Ncheck=32, valid_break=20, 
+          init_Nbatch=None, wait_epoch=10, eta=0.75,
+          Xvalid=None, Xvalidcov=None,
           init_n_iter=10, w=None, model_parms_file=None, fixed_means=None,
           aligned_covs=None, seed=None, verbose=False):
     """
@@ -57,54 +61,31 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
     model = xd_model(batch_itr.shape, n_components, n_iter, tol, w, Nthreads,
                      fixed_means, aligned_covs, verbose)
 
-    if update_weight is None:
-        update_weight = np.float(batch_size) / batch_itr.Ndata
 
     # if there is a given parm file, load them to model.
     if model_parms_file is not None:
         model.alpha, model.mu, model.V, _ = load_xd_parms(model_parms_file)
-
-    # INITIALIZATION ---
-    # initialize components via a few steps of GMM
-    # this doesn't take into account errors, but is a fast first-guess
-    t0 = time()
-    X, Xcov = batch_itr.get_batch()
-    if model.V is None:
-        # get data to initialize
-        if init_Nbatch is None:
-            init_Nbatch = 1
-        elif (init_Nbatch * batch_size > batch_itr.Ndata):
-            assert False, 'initialization batch size too large'
-
-        # add more data if requested for init.
-        for i in range(init_Nbatch - 1):
-            xt, xtc = batch_itr.get_batch()
-            X = np.vstack((X, xt))
-            Xcov = np.vstack((Xcov, xtc))
-            del xt, xtc
-
-        # launch (modified) scikit GMM
-        if (fixed_means is None) & (aligned_covs is None):
-            gmm = GMM(model.n_components, n_iter=init_n_iter,
-                      covariance_type='full').fit(X)
-        else:
-            gmm = constrained_GMM(X, model.n_components, init_n_iter,
-                                  fixed_means, aligned_covs)
-
-        # assign parms
-        model.mu = gmm.means_
-        model.alpha = gmm.weights_
-        model.V = gmm.covars_
+        model.init_alpha = model.alpha
+        model.init_mu = model.mu
+        model.init_V = model.V
 
     # initial likelihoods under GMM, or prev model
     model.train_logL = np.zeros(n_iter + 1)
     model.valid_logL = np.zeros(n_iter + 1)
-    model.train_logL[0] = model.logLikelihood(X, Xcov)
+
+    t0 = time()
+    if model.V is None:
+        logls = initialize(batch_itr, model, init_Nbatch, batch_size,
+                           fixed_means, aligned_covs, init_n_iter)
+        model.train_logL[0] = np.mean(logsumexp(logls, -1))
+    else:
+        model.train_logL[0] = model.logLikelihood(X, Xcov)
+
     if Xvalid is not None:
         model.valid_logL[0] = model.logLikelihood(Xvalid, Xvalidcov)
-        
+
     if model.verbose:
-        print 'Initalization done in %.2g sec' % (time() - t0)
+        print '\nInitalization done in %.2g sec' % (time() - t0)
         print 'Initial Log Likelihood: ', model.train_logL[0]
         print 'Initial Valid Log Likelihood: ', model.valid_logL[0]
 
@@ -119,37 +100,41 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
         X, Xcov = batch_itr.get_batch()
 
         # take a step and eval train likelihood
+        update_weight = get_update_weight(np.float(i), wait_epoch, eta)
         model = _EMstep(model, X, Xcov, update_weight)
         model.train_logL[i + 1] = model.logLikelihood(X, Xcov)
 
-        # only update validation likelihood every so often, can cost 
+        # Only update validation likelihood every so often, can cost 
         # as much or more than EM update depending on Nvalid.
+        # Save parms and stop, if needed.
         if (i % Ncheck == 0):
+            it = np.minimum(n_iter - 1, 3) # run for three iters min.
+            prev_best_valid_logL = np.max(model.valid_logL[it:])
             model.valid_logL[i + 1] = model.logLikelihood(Xvalid, Xvalidcov)
-
-        t1 = time()
-        tt += t1 - t0
-        if model.verbose:
-            tup = (i + 1, model.train_logL[i + 1], model.valid_logL[i + 1])
-            print "%i: log(L) = %.5g, log(Lvalid) = %.5g" % tup
-            print "iter:%.2g sec, total:%.2g sec" % ((t1 - t0), tt)
-
-        # save parms and stop, if needed.
-        if (i % Ncheck == 0):
-            if (model.valid_logL[i + 1] > model.valid_logL[i]):
+            if (model.valid_logL[i + 1] > prev_best_valid_logL):
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
                               model.valid_logL)
+                Nvalid_bad = 0
             elif Xvalid is None:
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
                               model.train_logL)
 
-            it = np.minimum(n_iter - 1, 3) # run for three iters min.
-            if model.valid_logL[i + 1] < np.max(model.valid_logL[it:]):
+            if (model.valid_logL[i + 1] < prev_best_valid_logL):
                 Nvalid_bad += 1
-                if Nvalid_bad == valid_break:
-                    print 'Bad valid, stopping', i, Nvalid_bad
-                    del X, Xcov, batch_itr # paranoid cleanup.
-                    break
+        else:
+            model.valid_logL[i + 1] = model.valid_logL[i]
+
+        # print status
+        t1 = time()
+        tt += t1 - t0
+        if model.verbose:
+            message(i, model.train_logL[i + 1], model.valid_logL[i + 1],
+                    update_weight, (t1 - t0), tt, Nvalid_bad)
+
+        # stopping
+        if Nvalid_bad == valid_break:
+            print 'Bad valid, stopping', i, Nvalid_bad
+            break
 
     return model
 
@@ -157,58 +142,29 @@ def _EMstep(model, X, Xcov, update_weight):
     """
     Perform the E-step (eq 16 of Bovy et al)
     """
-    X = X[:, np.newaxis, :]
-    Xcov = Xcov[:, np.newaxis, :, :]
-
-    w_m = X - model.mu
-    T = Xcov + model.V
-
     # Estep
     if model.Nthreads > 1:
-        q, b, B = _Estep_multi(model, T, w_m, X)
-    elif model.Nthreads == 1:
-        q, b, B = _Estep((T, w_m, X, model))
+        q, b, B = _Estep_multi(model, X, Xcov)
     else:
-        assert False, 'Number of threads must be greater than 0.'
+        assert False, 'Number of threads must be greater than 1.'
+
+    # its possible there are some extreme outliers, throw these out.
+    # should be very few.
+    qsum = np.sum(q, axis=1)
+    test = qsum == qsum
+    dlt = q.shape[0] - len(qsum[test])
+    if dlt > 0:
+        q = q[test]
+        b = b[test]
+        B = B[test]
+        print '\nThrew out %d outliers.' % dlt
 
     # M step
     model = _Mstep(model, q, b, B, update_weight)
 
     return model
 
-def _Estep((T, w_m, X, model)):
-    """
-    Compute the Estep for the given data chunk and current model
-    """
-
-    # compute inverse of each covariance matrix T
-    Tshape = T.shape
-    T = T.reshape([X.shape[0] * model.n_components,
-                   model.n_features, model.n_features])
-    Tinv = np.array([np.linalg.inv(T[i])
-                     for i in range(T.shape[0])]).reshape(Tshape)
-    T = T.reshape(Tshape)
-
-    # evaluate each mixture at each point
-    N = np.exp(log_multivariate_gaussian(X, model.mu, T, Vinv=Tinv))
-
-    # q
-    q = (N * model.alpha) / np.dot(N, model.alpha)[:, None]
-
-    # b
-    tmp = np.sum(Tinv * w_m[:, :, np.newaxis, :], -1)
-    b = model.mu + np.sum(model.V * tmp[:, :, np.newaxis, :], -1)
-
-    # B
-    tt = time()
-    tmp = np.sum(Tinv[:, :, :, :, np.newaxis]
-                 * model.V[:, np.newaxis, :, :], -2)
-    B = model.V - np.sum(model.V[:, :, :, np.newaxis]
-                         * tmp[:, :, np.newaxis, :, :], -2)
-
-    return (q, b, B)
-
-def _Estep_multi(model, T, w_m, X):
+def _Estep_multi(model, X, Xcov):
     """
     Use multiple processes to compute Estep.
     """
@@ -216,13 +172,16 @@ def _Estep_multi(model, T, w_m, X):
     mapfn = pool.map
     Nchunk = np.ceil(1. / model.Nthreads * X.shape[0]).astype(np.int)
 
+    T = Xcov[:, None, :, :] + model.V
+
     arglist = [None] * model.Nthreads
     for i in range(model.Nthreads):
         s = i * Nchunk
         e = s + Nchunk
-        arglist[i] = (T[s:e], w_m[s:e], X[s:e], model)
+        arglist[i] = (X[s:e], model.mu, model.V, Xcov[s:e], model.alpha)
 
-    results = list(mapfn(_Estep, [args for args in arglist]))
+    results = list(mapfn(_cEstep, [args for args in arglist]))
+
     q, b, B = results[0]
     for i in range(1, model.Nthreads):
         q = np.vstack((q, results[i][0]))
@@ -234,27 +193,30 @@ def _Estep_multi(model, T, w_m, X):
     pool.join()
     return q, b, B
 
+def _cEstep(args):
+    return _Estep(*args)
+
 def _Mstep(model, q, b, B, update_weight):
     """
     M-step: compute alpha, mu, V, update to model
     """
     Nbatch = q.shape[0]
     qj = q.sum(0)
-    alpha = qj / Nbatch
+    new_alpha = qj / Nbatch
 
     # prevent no component from having too low a weight
-    ind = alpha < model.min_alpha
-    alpha[ind] = model.min_alpha
-    alpha /= alpha.sum()
-    qj = alpha * Nbatch
+    ind = new_alpha < model.min_alpha
+    new_alpha[ind] = model.min_alpha
+    new_alpha /= new_alpha.sum()
+    qj = new_alpha * Nbatch
 
     # update alpha
-    d_alpha = alpha - model.alpha
-    model.alpha = d_alpha * update_weight + model.alpha
+    model.alpha = new_alpha * update_weight
+    model.alpha += model.alpha * (1. - update_weight)
 
     # update mu
-    d_mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis] - model.mu
-    model.mu = d_mu * update_weight + model.mu
+    new_mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis]
+    model.mu = new_mu * update_weight + model.mu * (1. - update_weight)
     if model.fixed_means is not None:
         ind = model.fixed_means < np.inf
         model.mu[ind] = model.fixed_means[ind]
@@ -264,11 +226,11 @@ def _Mstep(model, q, b, B, update_weight):
     tmp = m_b[:, :, np.newaxis, :] * m_b[:, :, :, np.newaxis]
     tmp += B
     tmp *= q[:, :, np.newaxis, np.newaxis]
-    d_V = (tmp.sum(0) + model.w[np.newaxis, :, :]) / \
-          (qj[:, np.newaxis, np.newaxis] + 1) - model.V
-    model.V = d_V * update_weight + model.V
+    new_V = (tmp.sum(0) + model.w[np.newaxis, :, :]) / \
+          (qj[:, np.newaxis, np.newaxis] + 1)
+    model.V = new_V * update_weight + model.V * (1. - update_weight)
 
-   # axis align covs if desired
+    # axis align covs if desired
     if model.aligned_covs is not None:
         for info in model.aligned_covs:
             c, inds = zip(info)
@@ -279,6 +241,74 @@ def _Mstep(model, q, b, B, update_weight):
 
     return model
 
+def get_update_weight(epoch, wait_epoch, eta):
+    """
+    Weight for current update
+    """
+    return (wait_epoch / (epoch + wait_epoch)) ** eta
+
+def initialize(batch_itr, model, init_Nbatch, batch_size, fixed_means,
+               aligned_covs, init_n_iter, bad_loglike=-200):
+    """
+    Initialize components via a few steps of vanilla GMM, throw out any
+    obvious outliers.
+    """
+    # get data to initialize
+    X, Xcov = batch_itr.get_batch()
+    if init_Nbatch is None:
+        init_Nbatch = 1
+    elif (init_Nbatch * batch_size > batch_itr.Ndata):
+        assert False, 'initialization batch size too large'
+
+    # add more data if requested for init.
+    for i in range(init_Nbatch - 1):
+        xt, xtc = batch_itr.get_batch()
+        X = np.vstack((X, xt))
+        Xcov = np.vstack((Xcov, xtc))
+        del xt, xtc
+
+    gmm = constrained_GMM(X, model.n_components, init_n_iter, fixed_means,
+                          aligned_covs)
+
+    # assign parms
+    model.mu = gmm.means_
+    model.alpha = gmm.weights_
+    model.V = gmm.covars_
+
+    # check for outliers, if there are some throw out and re-initialize
+    loglikes = model.logprob_a(X, Xcov)
+    maxls = np.max(loglikes, axis=1)
+    ind = np.where(maxls > bad_loglike)[0]
+    # refit if needed
+    if X.shape[0] - len(ind) > 0:
+        gmm = constrained_GMM(X[ind], model.n_components, init_n_iter,
+                              fixed_means,valigned_covs)
+        model.mu = gmm.means_
+        model.alpha = gmm.weights_
+        model.V = gmm.covars_
+        loglikes = model.logprob_a(X, Xcov)
+
+    return loglikes
+    
+def message(itr, trnL, vldL, weight, itr_t, tot_t, Nbad):
+    if itr == 0:
+        head = '\n'
+        head += '|{s:{c}^{n}}'.format(s='iter', n=9, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='train L', n=12, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='valid L', n=12, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='weight', n=9, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='itr time', n=9, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='tot time', n=9, c=' ')
+        head += '|{s:{c}^{n}}|\n'.format(s='Nbad', n=9, c=' ')
+        print head + '-' * 77
+    m = '|{s:{c}^{n}}'.format(s='%d' % itr, n=9, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.5g' % trnL, n=12, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.5g' % vldL, n=12, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.5g' % weight, n=9, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.2g' % itr_t, n=9, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.2g' % tot_t, n=9, c=' ')
+    m += '|{s:{c}^{n}}|'.format(s='%d' % Nbad, n=9, c=' ')
+    print m
 
 class xd_model(object):
     """
@@ -336,14 +366,10 @@ class xd_model(object):
         # assume full covariances of data
         assert Xcov.shape == (n_samples, n_features, n_features)
 
-        X = X[:, np.newaxis, :]
-        Xcov = Xcov[:, np.newaxis, :, :]
-        T = Xcov + self.V
-
         if self.Nthreads == 1:
             return log_multivariate_gaussian(X, self.mu, T)
         else:
-            return log_multivariate_gaussian_Nthreads(X, self.mu, T,
+            return log_multivariate_gaussian_Nthreads(X, self.mu, self.V, Xcov,
                                                       self.Nthreads)
 
     def logLikelihood(self, X, Xcov):

@@ -5,12 +5,19 @@
 #
 import os
 import h5py
+import psutil
 import numpy as np
 import pyfits as pf
 
 from interruptible_pool import InterruptiblePool
 
-def log_multivariate_gaussian_Nthreads(x, mu, V, Nthreads=1):
+def mem():
+    # return the memory usage in MB
+    process = psutil.Process(os.getpid())
+    mem = process.get_memory_info()[0] / float(2 ** 20)
+    print 'Memory usage is %0.1f GB' % (mem / 1000.)
+
+def log_multivariate_gaussian_Nthreads(x, mu, V, xcov, Nthreads=1):
     """
     Use multiprocessing to calculate log likelihoods.
     """
@@ -19,22 +26,14 @@ def log_multivariate_gaussian_Nthreads(x, mu, V, Nthreads=1):
     mapfn = pool.map
     Nchunk = np.ceil(1. / Nthreads * n_samples).astype(np.int)
 
-    if len(V.shape) > 3:
-        perdatum = True
-    else:
-        perdatum = False
-
     arglist = [None] * Nthreads
     for i in range(Nthreads):
         s = i * Nchunk
         e = s + Nchunk
-        if perdatum:
-            arglist[i] = (x[s:e], mu, V[s:e])
-        else:
-            arglist[i] = (x[s:e], mu, V)
+        arglist[i] = (x[s:e], mu, V, xcov[s:e])
 
     result = list(mapfn(lmg, [args for args in arglist]))
-    
+
     logls = result[0]
     for i in range(1, Nthreads):
        logls = np.vstack((logls, result[i]))
@@ -45,7 +44,15 @@ def log_multivariate_gaussian_Nthreads(x, mu, V, Nthreads=1):
     return logls
 
 def lmg(args):
-    return log_multivariate_gaussian(*args)
+    from log_multi_gauss import logmultigauss
+    return logmultigauss(*args)
+    #x, m, v, xc = args
+    #X = x[:, np.newaxis, :]
+    #Xcov = xc[:, np.newaxis, :, :]
+    #print Xcov.shape, X.shape, v.shape
+    #T = Xcov + v
+    #print T.shape
+    #return log_multivariate_gaussian(X, m, T)
 
 def log_multivariate_gaussian(x, mu, V, Vinv=None, method=1):
     """
@@ -77,7 +84,7 @@ def log_multivariate_gaussian(x, mu, V, Vinv=None, method=1):
     Returns
     -------
     values: ndarray
-        shape = broadcast(x.shape[:-1], mu.shape[:-1], V.shape[:-2])
+    shape = broadcast(x.shape[:-1], mu.shape[:-1], V.shape[:-2])
 
     Examples
     --------
@@ -473,7 +480,7 @@ def load_xd_parms(filename):
     f.close()
     return alpha, mu, V, valid_logl
 
-class DataIterator(object):
+class DataIterator2(object):
     """
     Batch iteration of data, reading batch by batch from disk.
     """
@@ -493,6 +500,41 @@ class DataIterator(object):
     def get_batch(self):
         X = self.Xmmap[self.start:self.end]
         Xcov = self.Xcovmmap[self.start:self.end]
+        self.iterate()
+        return X, Xcov
+
+    def iterate(self):
+        self.start += self.batch_size
+        self.end += self.batch_size
+        if self.start >= self.Ndata:
+            self.start = 0
+            self.end = self.batch_size
+
+class DataIterator(object):
+    """
+    Batch iteration of data, reading batch by batch from disk.
+    """
+    def __init__(self, datafile, batch_size):
+        self.datafile = datafile
+
+        f = pf.open(datafile)
+        self.Xmmap = f[0].data
+        self.Xcovmmap = f[1].data
+        self.Ndata = len(self.Xmmap)
+        self.Ndim = len(self.Xmmap[0])
+        self.shape = (self.Ndata, self.Ndim)
+        f.close()
+
+        self.batch_size = batch_size
+        self.start = 0
+        self.end = min(self.Ndata, batch_size)
+
+    def get_batch(self):
+        f = pf.open(self.datafile)
+        X = f[0].data[self.start:self.end]
+        Xcov = f[1].data[self.start:self.end]
+        f.close()
+
         self.iterate()
         return X, Xcov
 

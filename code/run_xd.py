@@ -10,11 +10,12 @@ ddir = os.environ['xddata']
 seed = 12345
 epoch = 3
 N = 60000
-batch_size = 30000
+batch_size = 3000
+init_Nbatch = 10
 K = 32
-uw = 0.5
-Ncheck = 4
-n_iter = 128
+Nthreads = 12
+Ncheck = 2
+n_iter = 256
 Nstar = 16
 data = 'dr12'
 factor = 100.
@@ -59,9 +60,9 @@ fixed_means = np.zeros((K, Xvalid.shape[1])) + np.inf
 fixed_means[:Nstar, fixed_mean_inds] = np.zeros(len(fixed_mean_inds))
 aligned_covs = [(i, fixed_inds) for i in range(Nstar)]
 
-model = XDGMM(datafile, K, batch_size, n_iter=n_iter, Nthreads=8,
+model = XDGMM(datafile, K, batch_size, n_iter=n_iter, Nthreads=Nthreads,
               verbose=True, Xvalid=Xvalid, Xvalidcov=Xvalidcov,
-              update_weight=uw, Ncheck=Ncheck,
+              Ncheck=Ncheck, init_Nbatch=init_Nbatch,
               model_parms_file=model_parms_file, fixed_means=fixed_means,
               aligned_covs=aligned_covs,
               savefile=savefile,
