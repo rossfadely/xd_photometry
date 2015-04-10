@@ -24,7 +24,6 @@ works with R = I.
 import multiprocessing
 import numpy as np
 
-from xdsave2 import _Estep as npe
 from Estep import _Estep
 from time import time
 from sklearn.mixture import GMM
@@ -113,11 +112,11 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
             model.valid_logL[i + 1] = model.logLikelihood(Xvalid, Xvalidcov)
             if (model.valid_logL[i + 1] > prev_best_valid_logL):
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
-                              model.valid_logL)
+                              model.train_logL, model.valid_logL)
                 Nvalid_bad = 0
             elif Xvalid is None:
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
-                              model.train_logL)
+                              model.train_logL, model.train_logL)
 
             if (model.valid_logL[i + 1] < prev_best_valid_logL):
                 Nvalid_bad += 1
@@ -297,16 +296,16 @@ def message(itr, trnL, vldL, weight, itr_t, tot_t, Nbad):
         head += '|{s:{c}^{n}}'.format(s='train L', n=12, c=' ')
         head += '|{s:{c}^{n}}'.format(s='valid L', n=12, c=' ')
         head += '|{s:{c}^{n}}'.format(s='weight', n=9, c=' ')
-        head += '|{s:{c}^{n}}'.format(s='itr time', n=9, c=' ')
-        head += '|{s:{c}^{n}}'.format(s='tot time', n=9, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='itr time', n=10, c=' ')
+        head += '|{s:{c}^{n}}'.format(s='tot time', n=10, c=' ')
         head += '|{s:{c}^{n}}|\n'.format(s='Nbad', n=9, c=' ')
-        print head + '-' * 77
+        print head + '-' * 79
     m = '|{s:{c}^{n}}'.format(s='%d' % itr, n=9, c=' ')
     m += '|{s:{c}^{n}}'.format(s='%0.5g' % trnL, n=12, c=' ')
     m += '|{s:{c}^{n}}'.format(s='%0.5g' % vldL, n=12, c=' ')
     m += '|{s:{c}^{n}}'.format(s='%0.5g' % weight, n=9, c=' ')
-    m += '|{s:{c}^{n}}'.format(s='%0.2g' % itr_t, n=9, c=' ')
-    m += '|{s:{c}^{n}}'.format(s='%0.2g' % tot_t, n=9, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.2g' % itr_t, n=10, c=' ')
+    m += '|{s:{c}^{n}}'.format(s='%0.2g' % tot_t, n=10, c=' ')
     m += '|{s:{c}^{n}}|'.format(s='%d' % Nbad, n=9, c=' ')
     print m
 

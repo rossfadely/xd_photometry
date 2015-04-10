@@ -455,7 +455,7 @@ def fetch_glob_data(name, features, filters):
 
     return X, Xcov
 
-def save_xd_parms(filename, a, m, v, vld_logl):
+def save_xd_parms(filename, a, m, v, trn_logl, vld_logl):
     """
     Save the XDGMM params in a fits table.
     """
@@ -465,6 +465,7 @@ def save_xd_parms(filename, a, m, v, vld_logl):
     f.create_dataset('alpha', data=a)
     f.create_dataset('mu', data=m)
     f.create_dataset('V', data=v)
+    f.create_dataset('train_logl', data=trn_logl)
     f.create_dataset('valid_logl', data=vld_logl)
     f.close()
 
@@ -476,39 +477,10 @@ def load_xd_parms(filename):
     alpha = f['alpha'][:]
     mu = f['mu'][:]
     V = f['V'][:]
+    train_logl = f['train_logl'][:]
     valid_logl = f['valid_logl'][:]
     f.close()
-    return alpha, mu, V, valid_logl
-
-class DataIterator2(object):
-    """
-    Batch iteration of data, reading batch by batch from disk.
-    """
-    def __init__(self, datafile, batch_size):
-        f = pf.open(datafile, memmap=True)
-        self.Xmmap = f[0].data
-        self.Xcovmmap = f[1].data
-        self.Ndata = len(self.Xmmap)
-        self.Ndim = len(self.Xmmap[0])
-        self.shape = (self.Ndata, self.Ndim)
-        f.close()
-
-        self.batch_size = batch_size
-        self.start = 0
-        self.end = min(self.Ndata, batch_size)
-
-    def get_batch(self):
-        X = self.Xmmap[self.start:self.end]
-        Xcov = self.Xcovmmap[self.start:self.end]
-        self.iterate()
-        return X, Xcov
-
-    def iterate(self):
-        self.start += self.batch_size
-        self.end += self.batch_size
-        if self.start >= self.Ndata:
-            self.start = 0
-            self.end = self.batch_size
+    return alpha, mu, V, train_logl, valid_logl
 
 class DataIterator(object):
     """
