@@ -281,7 +281,7 @@ def fetch_epoch(epoch, kind, verbose=False):
     
     return s, c
 
-def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag',
+def fetch_matched_s82data(epoch, fgal=0.5, features=['psf_mag',
                                                      'model_colors',
                                                      'psf_minus_model'],
                           filters=['r', 'ur gr ri rz', 'r'], use_single=True):
@@ -296,12 +296,12 @@ def fetch_prepped_s82data(epoch, fgal=0.5, features=['psf_mag',
         d = coadd
     return prep_data(d, features, filters)
 
-def fetch_prepped_dr12data(N, fgal=0.5, features=['psf_mag', 'model_colors',
-                                                  'psf_minus_model'],
-                           filters=['r', 'ur gr ri rz', 'r'],
-                           seed=1234, gname=None, sname=None, savefile=None):
+def fetch_prepped_data(N, fgal=0.5, features=['psf_mag', 'model_colors',
+                                              'psf_minus_model'],
+                       filters=['r', 'ur gr ri rz', 'r'],
+                       seed=1234, gname=None, sname=None, savefile=None):
     """
-    Prepare SDSS DR12 data to run XD.
+    Prepare SDSS data to run XD.
     """
     if gname is None:
         gname = 'dr12_30k_gals_rfadely.fit'
@@ -383,7 +383,7 @@ def make_W_matrix(features, filters, odim):
                 W[idx, ref[f]] = 1.
                 W[idx, 5 + ref[f]] = -1.
                 idx += 1
-            
+
     return W[:-1]
 
 def prep_data(d, features, filters=None, max_err=1000., s=0.396):
@@ -521,5 +521,9 @@ if __name__ == '__main__':
     import time
     t=time.time()
     N = 1000
-    X, Xcov = fetch_prepped_dr12data(N, savefile='foo.fits')
+    s = 's82single_120k_stars_rfadely.fit'
+    g = 's82single_120k_gals_rfadely.fit'
+    X, Xcov = fetch_prepped_data(N,sname=s, gname=g)
+    print X[0]
+    print Xcov[0]
     print time.time()-t

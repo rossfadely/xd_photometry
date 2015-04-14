@@ -3,13 +3,14 @@ import cPickle
 import numpy as np
 
 from xd import XDGMM
-from utils import fetch_prepped_dr12data, fetch_prepped_s82data
+from utils import fetch_prepped_data
 ddir = os.environ['xddata']
 
 # set data and model parameters
 seed = 12345
 epoch = 3
-N = 60000
+N = 240000
+Nval = 60000
 batch_size = 3000
 init_Nbatch = 10
 K = 32
@@ -17,28 +18,25 @@ Nthreads = 12
 Ncheck = 2
 n_iter = 256
 Nstar = 16
-data = 'dr12'
 factor = 100.
 features = ['psf_mag', 'model_colors', 'psf_minus_model']
 filters = ['r', 'ug gr ri iz', 'ugriz']
 
 # parm file specifications.
 message = 'pm_mc_pmm_r_all_all_v1'
-savefile = ddir + '/xdparms_%s_%d_%d_%d_%s.hd5' % (data, N, K, Nstar,
-                                                      message)
+savefile = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
 message = 'pm_mc_pmm_r_all_all_v1'
-model_parms_file = ddir + '/xdparms_%s_%d_%d_%d_%s.hd5' % (data, N, K,
-                                                              Nstar, message)
+model_parms_file = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
 model_parms_file = None
 
 # training data files
-gdataname = 'dr12_30k_gals_rfadely.fit'
-sdataname = 'dr12_30k_stars_rfadely.fit'
-datafile = ddir + 'dr12_60k_design.fits'
+gdataname = 's82single_120k_gals_rfadely.fit'
+sdataname = 's82single_120k_stars_rfadely.fit'
+datafile = 's82single_240_%s_design.fits' % message
 
 # validation data files
-gvalidname = 'dr12_30k_gals_2_rfadely.fit'
-svalidname = 'dr12_30k_stars_2_rfadely.fit'
+gvalidname = 's82single_30k_gals_valid_rfadely.fit'
+svalidname = 's82single_30k_stars_valid_rfadely.fit'
 
 # definitions for fixed means and aligned covs
 fixed_mean_inds = [-5, -4, -3, -2, -1]
@@ -46,14 +44,15 @@ fixed_inds = fixed_mean_inds
 
 # create the data file if needed.
 if not os.path.exists(datafile):
-    X, Xcov = fetch_prepped_dr12data(N, features=features, filters=filters,
-                                     gname=gdataname, sname=sdataname,
-                                     savefile=datafile)
+    print '\nCreating design matrix and covs.\n'
+    X, Xcov = fetch_prepped_data(N, features=features, filters=filters,
+                                 gname=gdataname, sname=sdataname,
+                                 savefile=datafile)
 
 # get valid data
-Xvalid, Xvalidcov = fetch_prepped_dr12data(N, features=features,
-                                           filters=filters,
-                                           gname=gvalidname, sname=svalidname)
+Xvalid, Xvalidcov = fetch_prepped_data(Nval, features=features,
+                                       filters=filters,
+                                       gname=gvalidname, sname=svalidname)
 
 # assign fixed means and aligned covs for stars
 fixed_means = np.zeros((K, Xvalid.shape[1])) + np.inf
