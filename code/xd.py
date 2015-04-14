@@ -35,7 +35,7 @@ from interruptible_pool import InterruptiblePool
 
 def XDGMM(datafile, n_components, batch_size, savefile=None,
           n_iter=100, tol=1E-5, Nthreads=1, R=None, Ncheck=32, valid_break=20, 
-          init_Nbatch=None, wait_epoch=10, eta=0.75,
+          init_Nbatch=None, wait_epoch=10, eta=0.75, nu=1.,
           Xvalid=None, Xvalidcov=None,
           init_n_iter=10, w=None, model_parms_file=None, fixed_means=None,
           aligned_covs=None, seed=None, verbose=False):
@@ -63,14 +63,14 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
 
     # if there is a given parm file, load them to model.
     if model_parms_file is not None:
-        model.alpha, model.mu, model.V, _ = load_xd_parms(model_parms_file)
+        model.alpha, model.mu, model.V, _, _ = load_xd_parms(model_parms_file)
         model.init_alpha = model.alpha
         model.init_mu = model.mu
         model.init_V = model.V
 
     # initial likelihoods under GMM, or prev model
-    model.train_logL = np.zeros(n_iter + 1)
-    model.valid_logL = np.zeros(n_iter + 1)
+    model.train_logL = np.zeros(n_iter + 1) - np.inf
+    model.valid_logL = np.zeros(n_iter + 1) - np.inf
 
     t0 = time()
     if model.V is None:
@@ -78,6 +78,7 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
                            fixed_means, aligned_covs, init_n_iter)
         model.train_logL[0] = np.mean(logsumexp(logls, -1))
     else:
+        X, Xcov = batch_itr.get_batch()
         model.train_logL[0] = model.logLikelihood(X, Xcov)
 
     if Xvalid is not None:
@@ -99,7 +100,7 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
         X, Xcov = batch_itr.get_batch()
 
         # take a step and eval train likelihood
-        update_weight = get_update_weight(np.float(i), wait_epoch, eta)
+        update_weight = get_update_weight(np.float(i), wait_epoch, eta, nu)
         model = _EMstep(model, X, Xcov, update_weight)
         model.train_logL[i + 1] = model.logLikelihood(X, Xcov)
 
@@ -117,7 +118,6 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
             elif Xvalid is None:
                 save_xd_parms(savefile, model.alpha, model.mu, model.V,
                               model.train_logL, model.train_logL)
-
             if (model.valid_logL[i + 1] < prev_best_valid_logL):
                 Nvalid_bad += 1
         else:
@@ -212,6 +212,7 @@ def _Mstep(model, q, b, B, update_weight):
     # update alpha
     model.alpha = new_alpha * update_weight
     model.alpha += model.alpha * (1. - update_weight)
+    model.alpha /= model.alpha.sum()
 
     # update mu
     new_mu = np.sum(q[:, :, np.newaxis] * b, 0) / qj[:, np.newaxis]
@@ -240,11 +241,12 @@ def _Mstep(model, q, b, B, update_weight):
 
     return model
 
-def get_update_weight(epoch, wait_epoch, eta):
+def get_update_weight(epoch, wait_epoch, eta, nu):
     """
     Weight for current update
     """
-    return (wait_epoch / (epoch + wait_epoch)) ** eta
+    weight = (nu * wait_epoch / (epoch + wait_epoch)) ** eta
+    return np.minimum(1.0, weight)
 
 def initialize(batch_itr, model, init_Nbatch, batch_size, fixed_means,
                aligned_covs, init_n_iter, bad_loglike=-200):
@@ -314,7 +316,7 @@ class xd_model(object):
     Class to store all things pertinent to the XD model. 
     """
     def __init__(self, xshape, n_components, n_iter, tol, w, Nthreads,
-                 fixed_means, aligned_covs, verbose, min_alpha=1.e-100):
+                 fixed_means, aligned_covs, verbose, min_alpha=1.e-10):
         self.n_samples = xshape[0]
         self.n_features = xshape[1]
         self.n_components = n_components
@@ -366,10 +368,11 @@ class xd_model(object):
         assert Xcov.shape == (n_samples, n_features, n_features)
 
         if self.Nthreads == 1:
-            return log_multivariate_gaussian(X, self.mu, T)
+            logls = log_multivariate_gaussian(X, self.mu, T)
         else:
-            return log_multivariate_gaussian_Nthreads(X, self.mu, self.V, Xcov,
-                                                      self.Nthreads)
+            logls = log_multivariate_gaussian_Nthreads(X, self.mu, self.V,
+                                                       Xcov, self.Nthreads)
+        return logls + np.log(self.alpha)
 
     def logLikelihood(self, X, Xcov):
         """

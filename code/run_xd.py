@@ -11,8 +11,9 @@ seed = 12345
 epoch = 3
 N = 240000
 Nval = 60000
-batch_size = 3000
-init_Nbatch = 10
+batch_size = 2400
+init_Nbatch = 12
+nu = 1.
 K = 32
 Nthreads = 12
 Ncheck = 2
@@ -26,7 +27,7 @@ filters = ['r', 'ug gr ri iz', 'ugriz']
 message = 'pm_mc_pmm_r_all_all_v1'
 savefile = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
 message = 'pm_mc_pmm_r_all_all_v1'
-model_parms_file = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
+#model_parms_file = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
 model_parms_file = None
 
 # training data files
@@ -61,7 +62,7 @@ aligned_covs = [(i, fixed_inds) for i in range(Nstar)]
 
 model = XDGMM(datafile, K, batch_size, n_iter=n_iter, Nthreads=Nthreads,
               verbose=True, Xvalid=Xvalid, Xvalidcov=Xvalidcov,
-              Ncheck=Ncheck, init_Nbatch=init_Nbatch,
+              Ncheck=Ncheck, init_Nbatch=init_Nbatch, nu=nu,
               model_parms_file=model_parms_file, fixed_means=fixed_means,
               aligned_covs=aligned_covs,
               savefile=savefile,

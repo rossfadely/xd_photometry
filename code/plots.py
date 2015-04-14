@@ -5,8 +5,9 @@
 # Author - Ross Fadely
 #
 from matplotlib import use; use('Agg')
-from utils import fetch_glob_data, fetch_prepped_s82data
-from utils import fetch_prepped_dr10data
+from utils import fetch_glob_data, fetch_matched_s82data
+from utils import fetch_prepped_data, load_xd_parms
+from utils import log_multivariate_gaussian_Nthreads, logsumexp
 from astroML.plotting.tools import draw_ellipse
 from triangle import hist2d, error_ellipse
 
@@ -632,34 +633,108 @@ def psfminusmodel_plot(epoch, model, features, filters, figname, fgal=0.5,
         pl.xlim(-0.1, 0.2)
     f.savefig(figname, bbox_inches='tight')
 
+def s82_star_galaxy_classification(model_parms_file, epoch, Nstar,
+                                   features, filters, r_pmm, figname,
+                                   threshold=0., Nthreads=4):
+    """
+    Compare quality of classifcation for a model with the s82 coadd.  Should 
+    be a model trained on s82 single epoch data.
+    """
+    # get the data
+    single, singlecov = fetch_matched_s82data(epoch, features=features,
+                                              filters=filters)
+    coadd, coaddecov = fetch_matched_s82data(epoch, features=features,
+                                             filters=filters, use_single=False)
+
+    # classfy the single epoch data
+    single_class = np.zeros(single.shape[0])
+    ind = np.abs(single[:, r_pmm]) < 0.145 
+    single_class[ind] = 1.
+
+    alpha, mu, V, _, _ = load_xd_parms(model_parms_file)
+    logls = log_multivariate_gaussian_Nthreads(single, mu, V, singlecov,
+                                               Nthreads)
+    logls += np.log(alpha)
+    logodds = logsumexp(logls[:, :Nstar], axis=1)
+    logodds -= logsumexp(logls[:, Nstar:], axis=1)
+    ind = logodds > threshold
+    model_class = np.zeros(single.shape[0])
+    model_class[ind] = 1.
+
+    coadd_class = np.zeros(single.shape[0])
+    ind = np.abs(coadd[:, r_pmm]) < 0.03
+    coadd_class[ind] = 1.
+
+    fs = 10
+    f = pl.figure(figsize=(2 * fs, 2 * fs))
+    pl.subplot(221)
+    pl.plot(single[single_class==0, 0], single[single_class==0, r_pmm], '.',
+            color='#ff6633', alpha=0.2)
+    pl.plot(single[single_class==1, 0], single[single_class==1, r_pmm], '.',
+            color='#3b5998', alpha=0.2)
+    pl.ylim(-0.2, 0.5)
+    pl.subplot(222)
+    pl.plot(coadd[single_class==0, 0], coadd[single_class==0, r_pmm], '.',
+            color='#ff6633', alpha=0.2)
+    pl.plot(coadd[single_class==1, 0], coadd[single_class==1, r_pmm], '.',
+            color='#3b5998', alpha=0.2)
+    pl.plot([17.5, 22.], [0.03, 0.03], 'k')
+    pl.ylim(-0.2, 0.5)
+    pl.subplot(223)
+    pl.plot(single[model_class==0, 0], single[model_class==0, r_pmm], '.',
+            color='#ff6633', alpha=0.2)
+    pl.plot(single[model_class==1, 0], single[model_class==1, r_pmm], '.',
+            color='#3b5998', alpha=0.2)
+    pl.ylim(-0.2, 0.5)
+    pl.subplot(224)
+    pl.plot(coadd[model_class==0, 0], coadd[model_class==0, r_pmm], '.',
+            color='#ff6633', alpha=0.2)
+    pl.plot(coadd[model_class==1, 0], coadd[model_class==1, r_pmm], '.',
+            color='#3b5998', alpha=0.2)
+    pl.plot([17.5, 22.], [0.03, 0.03], 'k')
+    pl.ylim(-0.2, 0.5)
+    f.savefig(figname, bbox_inches='tight')
+
 if __name__ == '__main__':
+    ddir = os.environ['xddata']
+    pdir = os.environ['xdplots']
 
     epoch = 3
-    N = 60000
-    Nr = N
+    N = 240000
     K = 32
     n_iter = 256
     Nstar = 16
     data = 'dr10'
-    factor = 100.
     features = ['psf_mag', 'model_colors', 'psf_minus_model']
     filters = ['r', 'ug gr ri iz', 'ugriz']
     message = 'pm_mc_pmm_r_all_all'
-    model = 'xdmodel_%s_%d_%d_%d_%d_%s.pkl' % (data, Nr, K, n_iter, Nstar,
-                                               message)
-    model = os.environ['xddata'] + model
+    message = 'pm_mc_pmm_r_all_all_v1'
+    model_parm_file = ddir + '/s82_%d_%d_%d_%s.hdf5' % (N, K, Nstar, message)
+    r_pmm = -3
 
-    # test glob cmd plot
-    if False:
-        gn = 'm3'
-        glob_cmd(model, gn, features, filters,
-                 os.environ['xdplots'] + gn + '.png')
+    if True:
+        s82_star_galaxy_classification(model_parm_file, epoch, Nstar,
+                                       features, filters, r_pmm,
+                                       pdir + 'foo.png')
 
     # test contour plot
     if False:
         figname = os.environ['xdplots'] + 'foo.png'
         contours_and_data(epoch, model, features, filters, figname, fgal=0.5,
                           idx=-3, data=data)
+
+    # test histo plot
+    if False:
+        figname = os.environ['xdplots'] + 'foo.png'
+        psfminusmodel_plot(epoch, model, features, filters, figname, idx=-3)
+
+    # call for these might be affected by the new way model parms are saved.
+    """
+    # test glob cmd plot
+    if False:
+        gn = 'm3'
+        glob_cmd(model, gn, features, filters,
+                 os.environ['xdplots'] + gn + '.png')
 
     # test xx plot
     if False:
@@ -681,11 +756,8 @@ if __name__ == '__main__':
         figname = os.environ['xdplots'] + 'foo.png'
         error_rates(epoch, model, features, filters, figname, idx=-3, N=1000)
 
-    # test histo plot
-    if False:
-        figname = os.environ['xdplots'] + 'foo.png'
-        psfminusmodel_plot(epoch, model, features, filters, figname, idx=-3)
 
     # run paper figure generation
     if True:
         fig_6()
+    """
