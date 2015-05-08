@@ -57,9 +57,8 @@ def XDGMM(datafile, n_components, batch_size, savefile=None,
 
     # initialize data iterator and model.
     batch_itr = DataIterator(datafile, batch_size)
-    model = xd_model(batch_itr.shape, n_components, n_iter, tol, w, Nthreads,
+    model = xd_model(n_components, batch_itr.shape, n_iter, tol, w, Nthreads,
                      fixed_means, aligned_covs, verbose)
-
 
     # if there is a given parm file, load them to model.
     if model_parms_file is not None:
@@ -315,8 +314,9 @@ class xd_model(object):
     """
     Class to store all things pertinent to the XD model. 
     """
-    def __init__(self, xshape, n_components, n_iter, tol, w, Nthreads,
-                 fixed_means, aligned_covs, verbose, min_alpha=1.e-10):
+    def __init__(self, n_components, xshape, n_iter=None, tol=None,
+                 w=None, Nthreads=None, fixed_means=None, aligned_covs=None,
+                 verbose=True, min_alpha=1.e-10):
         self.n_samples = xshape[0]
         self.n_features = xshape[1]
         self.n_components = n_components
@@ -427,7 +427,7 @@ class xd_model(object):
             iV[i] = np.linalg.inv(self.V[i])
 
         for i in range(Xcov.shape[0]):
-            if (model.verbose & i % 1000):
+            if ((self.verbose) & (i % 1000 == 0)):
                 print 'Posterior Calculation for datum %d' % i
             Xicov = np.linalg.inv(Xcov[i])
             for j in range(self.n_components):

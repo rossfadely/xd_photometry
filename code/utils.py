@@ -296,10 +296,21 @@ def fetch_matched_s82data(epoch, fgal=0.5, features=['psf_mag',
         d = coadd
     return prep_data(d, features, filters)
 
+def fetch_single_prepped_data(filename, features=['psf_mag', 'model_colors',
+                                                  'psf_minus_model'],
+                              filters=['r', 'ur gr ri rz', 'r'],
+                              seed=1234):
+    ddir = os.environ['xddata']
+    f = pf.open(ddir + filename)
+    d = f[1].data
+    f.close()
+    return prep_data(d, features, filters)
+
 def fetch_prepped_data(N, fgal=0.5, features=['psf_mag', 'model_colors',
                                               'psf_minus_model'],
                        filters=['r', 'ur gr ri rz', 'r'],
-                       seed=1234, gname=None, sname=None, savefile=None):
+                       seed=1234, gname=None, sname=None, savefile=None,
+                       return_labels=False):
     """
     Prepare SDSS data to run XD.
     """
@@ -316,7 +327,7 @@ def fetch_prepped_data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     d = f[1].data
     f.close()
     Xgal, Xgalcov = prep_data(d, features, filters)
-
+    
     Nmax = N * fgal
     assert Xgal.shape[0] >= Nmax, 'Not enough galaxy data for request'
     Nmax = N - Nmax
@@ -327,15 +338,19 @@ def fetch_prepped_data(N, fgal=0.5, features=['psf_mag', 'model_colors',
     ind = np.random.permutation(Xgal.shape[0])[:Ngal]
     Xgal = Xgal[ind]
     Xgalcov = Xgalcov[ind]
+    gl = np.zeros(Ngal)
     ind = np.random.permutation(Xstar.shape[0])[:Nstar]
     Xstar = Xstar[ind]
     Xstarcov = Xstarcov[ind]
-
+    sl = np.ones(Nstar)
+    
     X = np.vstack((Xgal, Xstar))
     Xcov = np.vstack((Xgalcov, Xstarcov))
+    labels = np.append(gl, sl)
     ind = np.random.permutation(X.shape[0])
     X = X[ind]
     Xcov = Xcov[ind]
+    labels = labels[ind]
 
     if savefile is not None:
         prihdu = pf.PrimaryHDU(X)
@@ -343,7 +358,10 @@ def fetch_prepped_data(N, fgal=0.5, features=['psf_mag', 'model_colors',
         hdulist = pf.HDUList([prihdu, sechdu])
         hdulist.writeto(savefile, clobber=True)
 
-    return X, Xcov
+    if return_labels:
+        return X, Xcov, labels
+    else:
+        return X, Xcov
 
 def make_W_matrix(features, filters, odim):
     """
@@ -360,14 +378,23 @@ def make_W_matrix(features, filters, odim):
             ind = 0
         elif 'model' in feature:
             ind = 5
-        else:
+        elif 'petro' in feature:
             ind = 10
+        elif 'fwhm' in feature:
+            ind = 15
+        else:
+            assert 0, 'Feature not implemented'
 
         if ('mag' in feature) or ('petro' in feature):
             for f in filters[i]:
                 W = np.vstack((W, np.zeros((1, odim))))
                 W[idx, ind + ref[f]] = 1.
                 idx += 1
+
+        if ('fwhm' in feature):
+            W = np.vstack((W, np.zeros((1, odim))))
+            W[idx, ind] = 1.
+            idx += 1
 
         if 'colors' in feature:
             filts = filters[i].split()
@@ -386,7 +413,8 @@ def make_W_matrix(features, filters, odim):
 
     return W[:-1]
 
-def prep_data(d, features, filters=None, max_err=1000., s=0.396):
+def prep_data(d, features, filters=None, max_err=1000., s=0.396,
+              acs_fwhm_err=0.01):
     """
     Return the prepared data.
     """
@@ -416,8 +444,15 @@ def prep_data(d, features, filters=None, max_err=1000., s=0.396):
         petror50s = 0.5 * np.ones_like(psfmags)
         petror50errs = max_err * np.ones_like(psfmags)
 
-    X = np.hstack((psfmags, modelmags, petror50s))
-    Xerr = np.hstack((psfmagerrs, modelmagerrs, petror50errs))
+    try:
+        fwhms = np.vstack([d['acs_fwhm']]).T
+        fwhmerrs = acs_fwhm_err * np.ones_like(fwhms)
+    except:
+        fwhms = 0.5 * np.vstack([np.ones(psfmags.shape[0])]).T
+        fwhmerrs = acs_fwhm_err * np.ones_like(fwhms)
+
+    X = np.hstack((psfmags, modelmags, petror50s, fwhms))
+    Xerr = np.hstack((psfmagerrs, modelmagerrs, petror50errs, fwhmerrs))
 
     W = make_W_matrix(features, filters, X.shape[1])
 
@@ -518,12 +553,32 @@ class DataIterator(object):
             self.end = self.batch_size
 
 if __name__ == '__main__':
-    import time
-    t=time.time()
-    N = 1000
-    s = 's82single_120k_stars_rfadely.fit'
-    g = 's82single_120k_gals_rfadely.fit'
-    X, Xcov = fetch_prepped_data(N,sname=s, gname=g)
-    print X[0]
-    print Xcov[0]
-    print time.time()-t
+    #features = ['psf_mag', 'model_colors', 'psf_minus_model', 'acs_fwhm']
+    #filters = ['r', 'ug gr ri iz', 'ugriz', 'i']
+    #features = ['psf_mag', 'model_colors', 'acs_fwhm']
+    #filters = ['r', 'ug gr ri iz', 'i']
+    #features = ['psf_mag', 'model_colors', 'acs_fwhm']
+    #filters = ['r', 'ur', 'i']
+    features = ['psf_mag', 'model_colors', 'psf_minus_model']
+    filters = ['r', 'ug gr ri iz', 'ugriz']
+    features = ['psf_mag', 'model_colors']
+    filters = ['r', 'gr']
+
+    ddir = os.environ['xddata']
+    f = 'dr12_cosmos.fits'
+    f = pf.open(ddir + f)
+    d = f[1].data
+    f.close()
+    X, Xcov = prep_data(d, features, filters)
+
+    """
+    f = 'dr12_240_pm_mc_pmm_r_all_all_design.fits'
+    f = pf.open(ddir + f)
+    print f[1].data[0]
+    f.close()
+    gdataname = 'dr12_120k_gals_rfadely.fit'
+    sdataname = 'dr12_120k_stars_rfadely.fit'
+    X, Xcov = fetch_prepped_data(240000, features=features, filters=filters,
+                                 gname=gdataname, sname=sdataname)
+
+    """
