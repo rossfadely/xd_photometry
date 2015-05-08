@@ -22,7 +22,7 @@ def log_multivariate_gaussian_Nthreads(x, mu, V, xcov, Nthreads=1):
     Use multiprocessing to calculate log likelihoods.
     """
     n_samples = x.shape[0]
-    pool = pool = InterruptiblePool(Nthreads)
+    pool = InterruptiblePool(Nthreads)
     mapfn = pool.map
     Nchunk = np.ceil(1. / Nthreads * n_samples).astype(np.int)
 
